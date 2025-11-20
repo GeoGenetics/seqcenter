@@ -1,5 +1,8 @@
 #!/bin/bash
 
+shopt -s extglob
+set -euo pipefail
+
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux NovaSeq 6000 runs using bcl-convert.
@@ -7,10 +10,8 @@ HEADER='
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
+BASEDIR=`dirname $0`
 
-
-shopt -s extglob
-set -euo pipefail
 
 module load python/3.12.8
 # Test python imports
@@ -91,7 +92,7 @@ mkdir -p $OUT_FOLDER
     for POOL in ${POOLS[*]}
     do
 	echo `date`" [$RUN][$POOL] Check cross-contamination"
-	python3 cross_contamination.py --index-known eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
+	python3 $BASEDIR/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
     done
 
     ## Get projects from SS

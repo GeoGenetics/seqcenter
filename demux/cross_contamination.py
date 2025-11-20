@@ -24,6 +24,7 @@ parser.add_argument(
     "--index-known",
     action="store",
     type=Path,
+    default=Path(__file__).parent / "eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt",
     help="File with the known index sequence combinations.",
 )
 parser.add_argument(
