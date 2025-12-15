@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
-header="""
+header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
 Date: 2025-10-10
-Version: 1.0.1"""
-    
+Version: 1.0.2"""
+
 import argparse
 import logging
 import pandas as pd
@@ -20,19 +20,20 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 parser.add_argument(
-    "-i",
-    "--index-known",
-    action="store",
-    type=Path,
-    default=Path(__file__).parent / "eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt",
-    help="File with the known index sequence combinations.",
-)
-parser.add_argument(
     "-f",
     "--index-counts",
     action="store",
     type=Path,
-    help="CSV file with index hopping counts.",
+    help="Path to CSV file with index hopping counts.",
+)
+parser.add_argument(
+    "-i",
+    "--index-known",
+    action="store",
+    type=Path,
+    default=Path(__file__).parent
+    / "eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt",
+    help="Path to file with index names.",
 )
 parser.add_argument(
     "--index-8bp-suffix",
@@ -107,37 +108,7 @@ logging.basicConfig(
     format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-
-
 logging.info(header)
-
-
-#########################
-### Master Index file ###
-#########################
-logging.info(f"Reading indexes from {args.index_known}")
-idx_known = pd.read_table(args.index_known)
-# Revcomp P5 index
-if args.miseq:
-    idx_8bp = idx_known["P5_INDEX_Seq"].str.len().eq(8)
-    idx_known.loc[idx_8bp, "P5_INDEX_Seq"] = idx_known.loc[idx_8bp, "P5_INDEX_Seq"].map(
-        lambda x: x.replace("A", "t")
-        .replace("C", "g")
-        .replace("G", "c")
-        .replace("T", "a")
-        .upper()[::-1]
-    )
-# Add index suffix
-if isinstance(args.index_8bp_suffix, list) and len(args.index_8bp_suffix) == 2:
-    idx_8bp = idx_known["P7_INDEX_Seq"].str.len().eq(8)
-    idx_known.loc[idx_8bp, "P7_INDEX_Seq"] = (
-        idx_known.loc[idx_8bp, "P7_INDEX_Seq"] + args.index_8bp_suffix[0]
-    )
-    idx_8bp = idx_known["P5_INDEX_Seq"].str.len().eq(8)
-    idx_known.loc[idx_8bp, "P5_INDEX_Seq"] = (
-        idx_known.loc[idx_8bp, "P5_INDEX_Seq"] + args.index_8bp_suffix[1]
-    )
-logging.debug(idx_known)
 
 
 #################################
@@ -160,19 +131,62 @@ idx_cnt = (
 
 # Select lanes
 if args.lanes:
+    logging.info(f"Subsetting lane(s) {args.lanes}")
     args.lanes = list(map(int, args.lanes.split(",")))
     idx_cnt = idx_cnt[idx_cnt["lane"].isin(args.lanes)]
 
-### Sum accross lanes
-idx_cnt = idx_cnt.drop(["lane"], axis=1).groupby(["RG", "p7seq", "p5seq"], dropna=False).sum().reset_index()
+### Sum read counts accross lanes
+idx_cnt = (
+    idx_cnt.drop(["lane"], axis=1)
+    .groupby(["RG", "p7seq", "p5seq"], dropna=False)
+    .sum()
+    .reset_index()
+)
 
-### Assign Index IDs
+
+#########################
+### Master Index file ###
+#########################
+if args.index_known:
+    logging.info(f"Reading indexes from {args.index_known}")
+    idx_names = pd.read_table(args.index_known)
+    # Revcomp P5 index
+    if args.miseq:
+        idx_8bp = idx_names["P5_INDEX_Seq"].str.len().eq(8)
+        idx_names.loc[idx_8bp, "P5_INDEX_Seq"] = idx_names.loc[
+            idx_8bp, "P5_INDEX_Seq"
+        ].map(
+            lambda x: x.replace("A", "t")
+            .replace("C", "g")
+            .replace("G", "c")
+            .replace("T", "a")
+            .upper()[::-1]
+        )
+    # Add index suffix
+    if isinstance(args.index_8bp_suffix, list) and len(args.index_8bp_suffix) == 2:
+        idx_8bp = idx_names["P7_INDEX_Seq"].str.len().eq(8)
+        idx_names.loc[idx_8bp, "P7_INDEX_Seq"] = (
+            idx_names.loc[idx_8bp, "P7_INDEX_Seq"] + args.index_8bp_suffix[0]
+        )
+        idx_8bp = idx_names["P5_INDEX_Seq"].str.len().eq(8)
+        idx_names.loc[idx_8bp, "P5_INDEX_Seq"] = (
+            idx_names.loc[idx_8bp, "P5_INDEX_Seq"] + args.index_8bp_suffix[1]
+        )
+else:
+    idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
+    idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
+logging.debug(idx_names)
+
+
+########################
+### Assign Index IDs ###
+########################
 logging.info("Assign index IDs")
 idx_cnt["p7id"] = idx_cnt["p7seq"].map(
-    idx_known.set_index("P7_INDEX_Seq")["P7_INDEX_ID"]
+    idx_names.set_index("P7_INDEX_Seq")["P7_INDEX_ID"].to_dict()
 )
 idx_cnt["p5id"] = idx_cnt["p5seq"].map(
-    idx_known.set_index("P5_INDEX_Seq")["P5_INDEX_ID"]
+    idx_names.set_index("P5_INDEX_Seq")["P5_INDEX_ID"].to_dict()
 )
 idx_cnt.loc[idx_cnt.p7id != idx_cnt.p5id, "RG"] = "unexpected"
 idx_cnt.loc[idx_cnt.p7id.isna() | idx_cnt.p5id.isna(), "RG"] = "unknown"
