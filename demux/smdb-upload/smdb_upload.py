@@ -1,3 +1,4 @@
+import subprocess
 import argparse
 import traceback
 from sqlalchemy import create_engine
@@ -8,21 +9,20 @@ import os
 from zoneinfo import ZoneInfo
 
 parser = argparse.ArgumentParser(
-        description=(
-            ""
-        )
+        description="Upload demultiplex stats, run info, and sample sheet metadata to SMDB."
     )
-parser.add_argument("-c", "--path_to_demultiplex_stats", required=True, help="Database user")
-parser.add_argument("-r", "--path_to_run_info", required=True, help="Database user")
-parser.add_argument("-x", "--path_to_sample_sheet", required=True, help="Database user")
-parser.add_argument("-n", "--db_name", required=True, help="Database password")
-parser.add_argument("-s", "--schema_name", required=True, help="Output TSV file path")
-parser.add_argument("-u", "--db_user", required=True, help="List of field sample IDs to filter the view (space-separated)")
-parser.add_argument("-p", "--db_password", required=True, help="List of field sample IDs to filter the view (space-separated)")
-parser.add_argument("-d", "--db_host", required=True, help="List of field sample IDs to filter the view (space-separated)")
-parser.add_argument("-o", "--db_port", required=True, help="List of field sample IDs to filter the view (space-separated)")
-parser.add_argument("-t", "--table_name", required=True, help="List of field sample IDs to filter the view (space-separated)")
-parser.add_argument("-e", "--emails", required=True, help="List of emails to send upload recepits to (space-separated)")
+parser.add_argument("-c", "--path_to_demultiplex_stats", required=True, help="Path to demultiplex stats CSV")
+parser.add_argument("-r", "--path_to_run_info", required=True, help="Path to run info XML")
+parser.add_argument("-x", "--path_to_sample_sheet", required=True, help="Path to sample sheet CSV")
+parser.add_argument("-n", "--db_name", required=True, help="Database name")
+parser.add_argument("-s", "--schema_name", required=True, help="Target schema name")
+parser.add_argument("-u", "--db_user", required=True, help="Database user")
+parser.add_argument("-p", "--db_password", required=True, help="Database password")
+parser.add_argument("-d", "--db_host", required=True, help="Database host")
+parser.add_argument("-o", "--db_port", required=True, type=int, help="Database port")
+parser.add_argument("-t", "--table_name", required=True, help="Target table name")
+parser.add_argument("-e", "--send_upload_receipts_to", required=True, help="Space-separated emails for upload receipts")
+parser.add_argument("-l", "--send_error_logs_to", required=True, help="Space-separated emails for error logs")
 
 args = parser.parse_args()
 
@@ -46,8 +46,13 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     run_info = pd.read_xml(path_to_run_info)
     sample_sheet = pd.read_csv(path_to_sample_sheet)
     
-    sample_sheet = sample_sheet.iloc[0: 17].dropna(how='all', axis=1).dropna(how='any', axis=0).rename(columns={'[Header]': 'Attribute', 'Unnamed: 1': 'Value'})
-    sample_sheet = sample_sheet.set_index('Attribute')
+    sample_sheet = (
+        sample_sheet.iloc[0:17]
+        .dropna(how="all", axis=1)
+        .dropna(how="any", axis=0)
+        .rename(columns={"[Header]": "Attribute", "Unnamed: 1": "Value"})
+        .set_index("Attribute")
+    )
     
     emails =  emails.replace(" ", "; ")
     upload_sheets = str(path_to_demultiplex_stats) + "; " + str(path_to_run_info) + "; " + str(path_to_sample_sheet)
@@ -92,32 +97,38 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     dmux_stats = dmux_stats.rename(columns=rename_dict)
     
     dmux_stats.to_sql(table_name, ENGINE, schema=schema_name, if_exists="append", index=False)
-    # append into existing table
-    email_cmd = "mail -s 'Sequencing stats succesfully uploaded to SMDB' -a " + path_to_demultiplex_stats + " -a " + path_to_run_info + " " + emails + " <<< 'The appended sequencing stats has been succesfully uploaded to SMDB.'"
 
-
-    os.system(email_cmd)
-    
-try:
-    upload_demultiplex_stats(
-        path_to_demultiplex_stats=args.path_to_demultiplex_stats,
-        path_to_run_info=args.path_to_run_info,
-        path_to_sample_sheet=args.path_to_sample_sheet,
-        db_name=args.db_name,
-        schema_name=args.schema_name,
-        db_user=args.db_user,
-        db_password=args.db_password,
-        db_port=args.db_port,
-        table_name=args.table_name,
-        db_host=args.db_host,
-        emails=args.emails
+    email_cmd = [
+        "mail",
+        "-s",
+        "Sequencing stats successfully uploaded to SMDB",
+        "-a",
+        str(path_to_demultiplex_stats),
+        "-a",
+        str(path_to_run_info),
+    ]
+    email_cmd.extend(emails.split("; "))
+    subprocess.run(
+        email_cmd,
+        input="The appended sequencing stats has been successfully uploaded to SMDB.",
+        text=True,
+        check=False,
     )
     
-except Exception:
-    error_text = traceback.format_exc()
-    send_error_to = 'magnus.johannsen@sund.ku.dk magnus_johannsen@hotmail.com'
-    error_email_text = "mail -s 'Error uploading sequencing stats to SMDB' " + send_error_to + " <<< " + "'" + error_text + "'"
-    print(error_email_text)
-    os.system(error_email_text)
-    # Re-raise or exit with non-zero to signal failure upstream
+
+upload_demultiplex_stats(
+    path_to_demultiplex_stats=args.path_to_demultiplex_stats,
+    path_to_run_info=args.path_to_run_info,
+    path_to_sample_sheet=args.path_to_sample_sheet,
+    db_name=args.db_name,
+    schema_name=args.schema_name,
+    db_user=args.db_user,
+    db_password=args.db_password,
+    db_port=args.db_port,
+    table_name=args.table_name,
+    db_host=args.db_host,
+    emails=args.emails
+)
+    
+
     
