@@ -40,7 +40,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     """
    
     dmux_stats = pd.read_csv(path_to_demultiplex_stats)
-    run_info = pd.read_xml(path_to_run_info)
+    run_info = pd.read_xml(path_to_run_info, parser='etree')
     sample_sheet = pd.read_csv(path_to_sample_sheet)
     
     sample_sheet = (
