@@ -1,11 +1,9 @@
 import subprocess
 import argparse
-import traceback
 from sqlalchemy import create_engine
 import pandas as pd
 from datetime import datetime
 from uuid import uuid4
-import os
 from zoneinfo import ZoneInfo
 
 parser = argparse.ArgumentParser(
@@ -22,11 +20,10 @@ parser.add_argument("-d", "--db_host", required=True, help="Database host")
 parser.add_argument("-o", "--db_port", required=True, type=int, help="Database port")
 parser.add_argument("-t", "--table_name", required=True, help="Target table name")
 parser.add_argument("-e", "--send_upload_receipts_to", required=True, help="Space-separated emails for upload receipts")
-parser.add_argument("-l", "--send_error_logs_to", required=True, help="Space-separated emails for error logs")
 
 args = parser.parse_args()
 
-def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_to_sample_sheet, db_name, schema_name, db_user, db_password, db_host, db_port, table_name, emails):
+def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_to_sample_sheet, db_name, schema_name, db_user, db_password, db_host, db_port, table_name, send_upload_receipts_to):
     """
     Connects to a PostgreSQL database, queries a view, and exports the results to a TSV file.
 
@@ -54,7 +51,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
         .set_index("Attribute")
     )
     
-    emails =  emails.replace(" ", "; ")
+    send_upload_receipts_to =  send_upload_receipts_to.replace(" ", "; ")
     upload_sheets = str(path_to_demultiplex_stats) + "; " + str(path_to_run_info) + "; " + str(path_to_sample_sheet)
     timestamp = datetime.now(ZoneInfo("Europe/Copenhagen")) 
     seq_run_id = run_info.at[0, 'Id']
@@ -67,7 +64,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     dt = datetime.strptime(unformatted_seq_date, "%m/%d/%Y %I:%M:%S %p")
     formatted_date = dt.strftime("%Y-%m-%d")
     
-    dmux_stats['database_insert_by'] = emails
+    dmux_stats['database_insert_by'] = send_upload_receipts_to
     dmux_stats['upload_sheet'] = upload_sheets
     dmux_stats['database_insert_datetime_utc'] = timestamp
     dmux_stats['upload_uuid'] = uuid4()
@@ -106,8 +103,10 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
         str(path_to_demultiplex_stats),
         "-a",
         str(path_to_run_info),
+        "-a",
+        str(path_to_sample_sheet)
     ]
-    email_cmd.extend(emails.split("; "))
+    email_cmd.extend(send_upload_receipts_to.split("; "))
     subprocess.run(
         email_cmd,
         input="The appended sequencing stats has been successfully uploaded to SMDB.",
@@ -127,8 +126,8 @@ upload_demultiplex_stats(
     db_port=args.db_port,
     table_name=args.table_name,
     db_host=args.db_host,
-    emails=args.emails
-)
+    send_upload_receipts_to=args.send_upload_receipts_to
+    )
     
 
     
