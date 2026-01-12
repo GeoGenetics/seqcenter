@@ -58,7 +58,8 @@ THREADS=5
 
 IN_FOLDER=$1; shift
 SS=$1; shift
-OUT_FOLDER=$1; shift
+OUT_BASE="$1"; shift        # <-- keep the original "base output root"
+OUT_FOLDER="$OUT_BASE"
 EXTRA=$@
 
 RUN=20`basename $IN_FOLDER`
@@ -143,9 +144,42 @@ mkdir -p $OUT_FOLDER
 	cd ../
     done
 
+	if [[ $OUT_BASE == "/datasets/caeg_fastq" ]]; then
+		echo "$(date) OUT_BASE is /datasets/caeg_fastq – running SMDB upload script"
+		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
+
+		DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
+		RUNINFO_XML="$OUT_FOLDER/Reports/RunInfo.xml"
+		UPLOAD_RECEIPTS_TO="julie.bitz-thorsen@sund.ku.dk"
+
+		# Required DB env vars (do not hardcode secrets in the script)
+		: "${DB_NAME:?Set DB_NAME in environment}"
+		: "${DB_SCHEMA:?Set DB_SCHEMA in environment}"
+		: "${DB_USER:?Set DB_USER in environment}"
+		: "${DB_PASSWORD:?Set DB_PASSWORD in environment}"
+		: "${DB_HOST:?Set DB_HOST in environment}"
+		: "${DB_PORT:?Set DB_PORT in environment (integer)}"
+		: "${DB_TABLE:?Set DB_TABLE in environment}"
+
+		python3 "$SMDB_UPLOAD_SCRIPT" \
+				--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
+				--path_to_run_info "$RUNINFO_XML" \
+				--path_to_sample_sheet "$SS" \
+				--db_name "$DB_NAME" \
+				--schema_name "$DB_SCHEMA" \
+				--db_user "$DB_USER" \
+				--db_password "$DB_PASSWORD" \
+				--db_host "$DB_HOST" \
+				--db_port "$DB_PORT" \
+				--table_name "$DB_TABLE" \
+				--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
+	fi
+
     TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
     touch seqcenter.$TIMESTAMP.done
     cd ../
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
+
+
 
 exit 0
