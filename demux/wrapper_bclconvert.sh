@@ -58,7 +58,7 @@ THREADS=5
 
 IN_FOLDER=$1; shift
 SS=$1; shift
-OUT_FOLDER=$1; shift
+OUT_FOLDER=`realpath $1`; shift
 EXTRA=$@
 
 RUN=20`basename $IN_FOLDER`
