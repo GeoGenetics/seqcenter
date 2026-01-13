@@ -58,20 +58,16 @@ THREADS=5
 
 IN_FOLDER=$1; shift
 SS=$1; shift
-OUT_FOLDER=`realpath $1`; shift
+OUT_FOLDER=$1; shift
 EXTRA=$@
 
 RUN=20`basename $IN_FOLDER`
 if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
     OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
+    CAEG_DATA=true
 else
     OUT_FOLDER=$OUT_FOLDER/$RUN
-if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
-OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
-CAEG_DATA=true
-else
-OUT_FOLDER=$OUT_FOLDER/$RUN
-CAEG_DATA=false
+    CAEG_DATA=false
 fi
 
 # Check if output folder exists
