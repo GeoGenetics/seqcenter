@@ -143,7 +143,7 @@ mkdir -p $OUT_FOLDER
 	cd ../
     done
 
-	if [[ $OUT_FOLDER == "/datasets/caeg_fastq" ]]; then
+	if [[ $OUT_FOLDER == "/maps/datasets/caeg_fastq" ]]; then
 		echo `date`" [$RUN] uploading metadata to SMDB"
 		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
