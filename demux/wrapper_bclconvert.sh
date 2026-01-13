@@ -58,8 +58,7 @@ THREADS=5
 
 IN_FOLDER=$1; shift
 SS=$1; shift
-OUT_BASE="$1"; shift        # <-- keep the original "base output root"
-OUT_FOLDER="$OUT_BASE"
+OUT_FOLDER="$1"; shift
 EXTRA=$@
 
 RUN=20`basename $IN_FOLDER`
@@ -144,7 +143,7 @@ mkdir -p $OUT_FOLDER
 	cd ../
     done
 
-	if [[ $OUT_BASE == "/datasets/caeg_fastq" ]]; then
+	if [[ $OUT_FOLDER == "/datasets/caeg_fastq" ]]; then
 		echo `date`" [$RUN] uploading metadata to SMDB"
 		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
