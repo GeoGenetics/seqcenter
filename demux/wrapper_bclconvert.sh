@@ -24,6 +24,8 @@ python3 -c 'import pathlib'
 python3 -c 'import collections'
 python3 -c 'import plotly'
 python3 -c 'import matplotlib'
+python3 -c 'import psycopg2'
+python3 -c 'import sqlalchemy'
 
 
 ## Functions
