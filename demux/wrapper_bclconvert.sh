@@ -145,7 +145,7 @@ mkdir -p $OUT_FOLDER
     done
 
 	if [[ $OUT_BASE == "/datasets/caeg_fastq" ]]; then
-		echo "$(date) OUT_BASE is /datasets/caeg_fastq – running SMDB upload script"
+		echo `date`" [$RUN] uploading metadata to SMDB"
 		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
 		DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
