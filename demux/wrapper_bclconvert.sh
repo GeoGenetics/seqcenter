@@ -66,6 +66,12 @@ if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
     OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
 else
     OUT_FOLDER=$OUT_FOLDER/$RUN
+if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
+OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
+CAEG_DATA=true
+else
+OUT_FOLDER=$OUT_FOLDER/$RUN
+CAEG_DATA=false
 fi
 
 # Check if output folder exists
@@ -143,7 +149,7 @@ mkdir -p $OUT_FOLDER
 	cd ../
     done
 
-	if [[ $OUT_FOLDER == "/maps/datasets/caeg_fastq" ]]; then
+	if [ $CAEG_DATA = true ]; then
 		echo `date`" [$RUN] uploading metadata to SMDB"
 		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
