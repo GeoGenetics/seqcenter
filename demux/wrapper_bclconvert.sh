@@ -61,6 +61,7 @@ THREADS=5
 IN_FOLDER=$1; shift
 SS=$1; shift
 OUT_FOLDER=$1; shift
+DB_PASSWORD=$1; shift
 EXTRA=$@
 
 RUN=20`basename $IN_FOLDER`
@@ -137,7 +138,6 @@ mkdir -p $OUT_FOLDER
 	cd ../
     done
 
-
     ## Get pools from SS
     POOLS=(`ss_pool $SS`)
     ## Check cross-contamination
@@ -155,15 +155,12 @@ mkdir -p $OUT_FOLDER
 		DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
 		RUNINFO_XML="$OUT_FOLDER/Reports/RunInfo.xml"
 		UPLOAD_RECEIPTS_TO="julie.bitz-thorsen@sund.ku.dk"
-
-		# Required DB env vars (do not hardcode secrets in the script)
-		: "${DB_NAME:?Set DB_NAME in environment}"
-		: "${DB_SCHEMA:?Set DB_SCHEMA in environment}"
-		: "${DB_USER:?Set DB_USER in environment}"
-		: "${DB_PASSWORD:?Set DB_PASSWORD in environment}"
-		: "${DB_HOST:?Set DB_HOST in environment}"
-		: "${DB_PORT:?Set DB_PORT in environment (integer)}"
-		: "${DB_TABLE:?Set DB_TABLE in environment}"
+		DB_NAME="smdb"
+		DB_SCHEMA="uploaded_data"
+		DB_USER="upload_user"
+		DB_HOST="dandypdb01fl"
+		DB_PORT="5432"
+		DB_TABLE="demultiplex_stats"
 
 		python3 "$SMDB_UPLOAD_SCRIPT" \
 				--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
