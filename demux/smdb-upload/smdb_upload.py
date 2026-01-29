@@ -87,7 +87,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     
     ENGINE = create_engine(f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}")    
     
-    q = 'select column_name_db, column_name_sheet from name_maps.column_names where table_id = 47;'
+    q = 'select column_name_db, column_name_sheet from name_maps.column_names where table_id = 9;'
 
     renamer = pd.read_sql(q, ENGINE)
     rename_dict = dict(zip(renamer['column_name_sheet'], renamer['column_name_db']))
