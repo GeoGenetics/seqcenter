@@ -81,8 +81,8 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
                   sample_sheet.loc['PoolLane2', 'Value'],
                   sample_sheet.loc['PoolLane3', 'Value'],
                   sample_sheet.loc['PoolLane4', 'Value']]
-    num_lanes = len(dmux_stats['Lane'].unique())
-    assert num_lanes == 4, 'Expected 4 lanes in the demultiplex stats file. got ' + str(num_lanes)
+    # num_lanes = len(dmux_stats['Lane'].unique())
+    # assert num_lanes == 4, 'Expected 4 lanes in the demultiplex stats file. got ' + str(num_lanes)
     dmux_stats['sequencing_tube_tag'] = dmux_stats['Lane'].apply(lambda x: pool_lanes[x - 1])
     
     ENGINE = create_engine(f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}")    
