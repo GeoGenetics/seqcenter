@@ -2,7 +2,7 @@ import subprocess
 import argparse
 from sqlalchemy import create_engine
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -61,7 +61,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     flowcell_id = run_info.at[0, 'Flowcell']
     
     unformatted_seq_date = run_info.at[0, 'Date']
-    dt = datetime.strptime(unformatted_seq_date, "%m/%d/%Y %I:%M:%S %p")
+    dt = datetime.strptime(unformatted_seq_date, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     formatted_date = dt.strftime("%Y-%m-%d")
     
     dmux_stats['database_insert_by'] = send_upload_receipts_to
