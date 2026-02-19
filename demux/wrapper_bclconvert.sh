@@ -5,15 +5,15 @@ set -euo pipefail
 
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
-\n# Description: Wrapper script to demux NovaSeq 6000/X runs using bcl-convert.
-\n# Version: 1.3.3 (2026-01-20)
+\n# Description: Wrapper script to demux Illumina runs using bcl-convert.
+\n# Version: 1.3.5 (2026-02-12)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
 BASEDIR=`dirname $0`
 
 
-module load python/3.12.8
+module load python/3.12.8 miller/6.16.0
 # Test python imports
 python3 -c 'import samshee'
 python3 -c 'import argparse'
@@ -45,6 +45,10 @@ function check_pe() {
     fi
 }
 
+function ss_validate() {
+    python3 -c "from samshee.samplesheetv2 import read_samplesheetv2; ss = read_samplesheetv2('$1')"
+}
+
 function ss_pool() {
     python3 -c "from samshee.samplesheetv2 import read_samplesheetv2; ss = read_samplesheetv2('$1'); [print(val, tag.removeprefix('PoolLane')) for tag, val in ss.header.items() if tag.startswith('PoolLane')]" | datamash -t " " --output-delimiter=":" groupby 1 collapse 2
 }
@@ -52,19 +56,19 @@ function ss_pool() {
 function ss_proj() {
     python3 -c "from samshee.samplesheetv2 import read_samplesheetv2; ss = read_samplesheetv2('$1'); [print(data['Sample_Project']) for data in ss.applications['BCLConvert']['data']]" | sort -u
 }
-export -f check_se check_pe ss_pool ss_proj
+export -f check_se check_pe ss_validate ss_pool ss_proj
 
 
 ## Setup
 THREADS=5
 
-IN_FOLDER=$1; shift
-SS=$1; shift
-OUT_FOLDER=$1; shift
-DB_PASSWORD=$1; shift
+IN_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
+SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
+OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
+DB_PASSWORD=`realpath --canonicalize-existing --no-symlinks $1`; shift
 EXTRA=$@
 
-RUN=20`basename $IN_FOLDER`
+RUN=`basename $IN_FOLDER`
 if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
     OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
     CAEG_DATA=true
@@ -86,8 +90,11 @@ mkdir -p $OUT_FOLDER
     # Log script info
     echo -e $HEADER
 
+    ## Validate SampleSheet
+    ss_validate $SS
+
     ## Demultiplex
-    echo `date`" [$RUN] Demultiplexing from $IN_FOLDER to $OUT_FOLDER with SampleSheet $SS (and extra: $EXTRA)"
+    echo `date`" [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
     bcl-convert --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true --force $EXTRA
 
     ## Get projects from SS
@@ -176,6 +183,9 @@ mkdir -p $OUT_FOLDER
 				--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
 	fi
 
+    ## Adapters with >5e6 undetermined reads
+    echo `date`" [$RUN] Adapters with >5e6 undetermined reads"
+    mlr --csv filter '$index != "GGGGGGGGGG" && $index2 != "GGGGGGGGGG" && $index != "NNNNNNNNNN" && $index2 != "NNNNNNNNNN" && ${# Reads} > 5e6' $OUT_FOLDER/Reports/Top_Unknown_Barcodes.csv
 
     TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
     touch seqcenter.$TIMESTAMP.done
