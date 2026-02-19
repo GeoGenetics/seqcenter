@@ -65,7 +65,7 @@ THREADS=5
 IN_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
-DB_PASSWORD=`realpath --canonicalize-existing --no-symlinks $1`; shift
+DB_PASSWORD=$1; shift
 EXTRA=$@
 
 RUN=`basename $IN_FOLDER`
