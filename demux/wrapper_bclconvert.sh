@@ -167,7 +167,7 @@ mkdir -p $OUT_FOLDER
 		DB_USER="upload_user"
 		DB_HOST="dandypdb01fl"
 		DB_PORT="5432"
-		DB_TABLE="demultiplex_stats"
+		DB_TABLE="flowcell"
 
 		python3 "$SMDB_UPLOAD_SCRIPT" \
 				--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
