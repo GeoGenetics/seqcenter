@@ -75,6 +75,7 @@ def upload_demultiplex_stats(path_to_demultiplex_stats, path_to_run_info, path_t
     dmux_stats['sequencing_tube_tag'] = None
     dmux_stats['flowcell_position'] = flowcell_position    
     dmux_stats['flowcell'] = flowcell_id
+    dmux_stats.loc[dmux_stats["SampleID"] == "Undetermined", "Index"] = "unknown"
     
     # TODO: Uncomment
     num_lanes = len(dmux_stats['Lane'].unique())
