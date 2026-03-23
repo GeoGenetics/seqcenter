@@ -65,7 +65,6 @@ THREADS=5
 IN_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
-DB_PASSWORD=$1; shift
 EXTRA=$@
 
 RUN=`basename $IN_FOLDER`
@@ -163,6 +162,7 @@ mkdir -p $OUT_FOLDER
     cd ../
 	
 	if [ $CAEG_DATA = true ]; then
+		: "${DB_PASSWORD:?DB_PASSWORD is not set}"
 		echo `date`" [$RUN] uploading metadata to SMDB"
 		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
@@ -188,6 +188,7 @@ mkdir -p $OUT_FOLDER
 				--db_port "$DB_PORT" \
 				--table_name "$DB_TABLE" \
 				--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
+		unset DB_PASSWORD
 	fi
 
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
