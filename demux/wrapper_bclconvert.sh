@@ -192,7 +192,6 @@ mkdir -p $OUT_FOLDER
 				--db_port "$DB_PORT" \
 				--table_name "$DB_TABLE" \
 				--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
-		unset DB_PASSWORD
 	fi
 
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
