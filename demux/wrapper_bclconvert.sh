@@ -67,6 +67,10 @@ SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 EXTRA=$@
 
+if [ -z "${DB_PASSWORD:-}" ]; then
+    echo "WARNING: DB_PASSWORD not set and upload to SMDB will be skipped" >&2
+fi
+
 RUN=`basename $IN_FOLDER`
 if [[ `realpath $OUT_FOLDER` == "/maps/datasets/caeg_fastq" ]]; then
     OUT_FOLDER=$OUT_FOLDER/${RUN:0:4}/$RUN
