@@ -3,8 +3,8 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-04-24
-Version: 1.0.8"""
+Date: 2026-05-19
+Version: 1.0.9"""
 
 import argparse
 import logging
@@ -120,16 +120,19 @@ idx_cnt = (
     )
 )
 if idx_cnt.shape[0] == 0:
-    logging.warning(f"Index Hopping Counts file {args.index_counts} is empty!")
-    exit(0)
+    logging.error(f"Index Hopping Counts file {args.index_counts} is empty!")
+    exit(1)
 
 # Select lanes
 if args.lanes:
     logging.info(f"Subsetting lane(s) {args.lanes}")
     args.lanes = list(map(int, args.lanes.split(",")))
     idx_cnt = idx_cnt[idx_cnt["lane"].isin(args.lanes)]
+    if idx_cnt.shape[0] == 0:
+        logging.warning("Index count matrix does not contain lanes {args.lanes}.")
+        exit(0)
 
-### Sum read counts accross lanes
+# Sum read counts accross lanes
 idx_cnt = (
     idx_cnt.drop(["lane"], axis=1)
     .groupby(["RG", "p7seq", "p5seq"], dropna=False)
@@ -137,7 +140,6 @@ idx_cnt = (
     .reset_index()
 )
 logging.debug(f"\n{idx_cnt}")
-assert idx_cnt.shape[0] > 0, "Index count matrix does not contain specified lanes."
 
 idx_len_max = idx_cnt["p7seq"].str.len().max()
 assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
