@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.4.1 (2026-03-27)
+\n# Version: 1.5.0 (2026-05-19)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -14,7 +14,7 @@ BASEDIR=`dirname $0`
 
 
 module load python/3.12.8 miller/6.16.0
-# Test python imports
+### Test python imports
 python3 -c 'import samshee'
 python3 -c 'import argparse'
 python3 -c 'import logging'
@@ -28,7 +28,7 @@ python3 -c 'import psycopg2'
 python3 -c 'import sqlalchemy'
 
 
-## Functions
+### Functions
 function check_se() {
     RET=`zcat $1 | awk --field-separator "\t" 'NR%4==1 && !/^@/' | head --lines 1`
     if [[ $RET ]]; then
@@ -59,12 +59,23 @@ function ss_proj() {
 export -f check_se check_pe ss_validate ss_pool ss_proj
 
 
-## Setup
+### Setup
 THREADS=5
-
 IN_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
+
+# Demux data or copy?
+if [[ -e $IN_FOLDER/Analysis ]]; then
+    read -p "Found demultiplexed data. Do you want to copy this data [y/n]?" choice
+    case "$choice" in 
+	y|Y ) DEMUX=false;;
+	n|N ) DEMUX=true;;
+	* ) echo "invalid option && exit 1";;
+    esac
+else
+    DEMUX=true
+fi
 EXTRA=$@
 
 if [ -z "${DB_PASSWORD:-}" ]; then
@@ -95,27 +106,69 @@ mkdir -p $OUT_FOLDER
 
 
 {
-    # Log script info
+    ### Log script info
     echo -e $HEADER
 
-    ## Validate SampleSheet
+    ### Validate SampleSheet
     ss_validate $SS
 
-    ## Demultiplex
-    echo `date`" [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
-    bcl-convert --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true --force $EXTRA
-
-    ## Get projects from SS
-    PROJS=(`ss_proj $SS`)
-    ## Check FASTQ files
+    if [ $DEMUX = true]; then
+	### Demultiplex
+	# The following parameters are adjusted to reduce the memory and CPU footprints of bcl-convert to fit into the VM.
+	# Use a suitable value from these intervals:
+	#   --bcl-num-parallel-tiles        = 1..2
+	#   --bcl-num-conversion-threads    = 2..4
+	#   --bcl-num-compression-threads   = 2..4
+	#   --bcl-num-decompression-threads = 1..2
+	echo `date`" [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
+	bcl-convert --bcl-num-parallel-tiles 1 --bcl-num-conversion-threads 4 --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true $EXTRA
+    else
+	### Choose latest run
+	IN_FOLDERS=($IN_FOLDER/Analysis/[0-9]/Data)
+	if [[ $IN_FOLDER/Analysis/${#IN_FOLDERS[*]}/Data != ${IN_FOLDERS[-1]} ]]; then
+	    echo `date`" [$RUN] WARNING: Number of analyses does not match"
+	fi
+	### Check run
+	echo `date`" [$RUN] Checking if run has finished successfully"
+	if [ ! -e $IN_FOLDER/CopyComplete.txt ]; then
+	   echo `date`" [$RUN] File $IN_FOLDER/CopyComplete.txt is not present!"
+	   exit 1
+	fi
+	if [ ! -e ${IN_FOLDERS[-1]}/Secondary_Analysis_Complete.txt ]; then
+	   echo `date`" [$RUN] File $IN_FOLDER/Secondary_Analysis_Complete.txt is not present!"
+	   exit 1
+	fi
+	### Copy demultiplexed data
+	mkdir -p $OUT_FOLDER/Reports
+	echo `date`" [$RUN] Copying reports to $OUT_FOLDER/Reports"
+	rsync -Par $IN_FOLDER/Run*.xml ${IN_FOLDERS[-1]}/SampleSheet.csv $OUT_FOLDER/Reports/.
+	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Reports/* $OUT_FOLDER/Reports/.
+	rsync -Par ${IN_FOLDERS[-1]}/Demux/*.{csv,bin} $OUT_FOLDER/Reports/.
+	echo `date`" [$RUN] Copying Undetermined FASTQ"
+	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Undetermined*.fastq.gz $OUT_FOLDER/.
+	# Switch IN_FOLDER
+	IN_FOLDER=${IN_FOLDERS[-1]}
+    fi
     cd $OUT_FOLDER/
+
+    ### Get projects from SS
+    PROJS=(`ss_proj $SS`)
+    ### Check FASTQ files
     for PROJ in ${PROJS[*]}
     do
+	mkdir -p $PROJ/
 	cd $PROJ/
-	## Run gzip integrity in parallel
-	echo `date`" [$RUN][$PROJ] Checking GZip files integrity"
-	ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 gzip --test
 
+	if [ $DEMUX = true]; then
+	    echo `date`" [$RUN][$PROJ] Checking GZip files integrity"
+	    ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 gzip --test
+	else
+	    echo `date`" [$RUN][$PROJ] Copying demultiplexed data from '$IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ' to project folder $PROJ"
+	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ/*.fastq.gz .
+	    echo `date`" [$RUN][$PROJ] Copying FASTQC from '$IN_FOLDER/$PROJ/BCLConvert' to project folder $PROJ"
+	    mkdir -p fastqc
+	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/*/fastqc/*.csv fastqc/.
+	fi
 
 	## Check if FASTQ is valid
 	#echo `date`" [$RUN][$PROJ] Checking if FASTQ files are valid"
@@ -139,68 +192,68 @@ mkdir -p $OUT_FOLDER
 	ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 md5sum > $RUN.$PROJ.md5
 
 
-	# Check duplicated MD5 checksums
+	## Check duplicated MD5 checksums
 	echo `date`" [$RUN][$PROJ] Checking for duplicated md5 checksums"
 	cut --delimiter " " --fields 1 $RUN.$PROJ.md5 | sort | uniq -d
 
 
-	# Check FASTQ file sizes
+	## Check FASTQ file sizes
 	echo `date`" [$RUN][$PROJ] Checking FASTQ files with size < 1Mb"
 	find . -name "*.fastq.gz" -size 1M -printf "%k Kb\t%p\n" | grep -Fv Undetermined || true
 
 
-	# Exit PROJ
+	## Exit PROJ
 	cd ../
     done
 
-    ## Get pools from SS
+    ### Get pools from SS
     POOLS=(`ss_pool $SS`)
-    ## Check cross-contamination
+    ### Check cross-contamination
     for POOL in ${POOLS[*]}
     do
 	echo `date`" [$RUN][$POOL] Check cross-contamination"
 	python3 $BASEDIR/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
     done
 
-    ## Adapters with >5e6 undetermined reads
+    ### Adapters with >5e6 undetermined reads
     echo `date`" [$RUN] Adapters with >5e6 undetermined reads"
     mlr --csv filter '$index != "GGGGGGGGGG" && $index2 != "GGGGGGGGGG" && $index != "NNNNNNNNNN" && $index2 != "NNNNNNNNNN" && ${# Reads} > 5e6' $OUT_FOLDER/Reports/Top_Unknown_Barcodes.csv
-
-    TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
-    touch seqcenter.$TIMESTAMP.done
     cd ../
-	
-	if [ $CAEG_DATA = true ]; then
-		: "${DB_PASSWORD:?DB_PASSWORD is not set}"
-		echo `date`" [$RUN] Uploading metadata to SMDB"
-		SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
-		DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
-		RUNINFO_XML="$OUT_FOLDER/Reports/RunInfo.xml"
-		UPLOAD_RECEIPTS_TO="julie.bitz-thorsen@sund.ku.dk"
-		DB_NAME="smdb"
-		DB_SCHEMA="uploaded_data"
-		DB_USER="upload_user"
-		DB_HOST="dandypdb01fl"
-		DB_PORT="5432"
-		DB_TABLE="flowcell"
+    ### Upload data to SMDB
+    if [ $CAEG_DATA = true ]; then
+	: "${DB_PASSWORD:?DB_PASSWORD is not set}"
+	echo `date`" [$RUN] Uploading metadata to SMDB"
+	SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
 
-		python3 "$SMDB_UPLOAD_SCRIPT" \
-				--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
-				--path_to_run_info "$RUNINFO_XML" \
-				--path_to_sample_sheet "$SS" \
-				--db_name "$DB_NAME" \
-				--schema_name "$DB_SCHEMA" \
-				--db_user "$DB_USER" \
-				--db_password "$DB_PASSWORD" \
-				--db_host "$DB_HOST" \
-				--db_port "$DB_PORT" \
-				--table_name "$DB_TABLE" \
-				--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
-	fi
+	DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
+	RUNINFO_XML="$OUT_FOLDER/Reports/RunInfo.xml"
+	UPLOAD_RECEIPTS_TO="julie.bitz-thorsen@sund.ku.dk"
+	DB_NAME="smdb"
+	DB_SCHEMA="uploaded_data"
+	DB_USER="upload_user"
+	DB_HOST="dandypdb01fl"
+	DB_PORT="5432"
+	DB_TABLE="flowcell"
+
+	python3 "$SMDB_UPLOAD_SCRIPT" \
+		--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
+		--path_to_run_info "$RUNINFO_XML" \
+		--path_to_sample_sheet "$SS" \
+		--db_name "$DB_NAME" \
+		--schema_name "$DB_SCHEMA" \
+		--db_user "$DB_USER" \
+		--db_password "$DB_PASSWORD" \
+		--db_host "$DB_HOST" \
+		--db_port "$DB_PORT" \
+		--table_name "$DB_TABLE" \
+		--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
+    fi
 
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
 
 
+TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
+touch seqcenter.$TIMESTAMP.done
 
 exit 0
