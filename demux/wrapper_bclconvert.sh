@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.1 (2026-06-30)
+\n# Version: 1.5.2 (2026-06-30)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -103,7 +103,6 @@ if [ -d $OUT_FOLDER ]; then
     RND_STR=`basename $RND_STR`
     OUT_FOLDER=$OUT_FOLDER-$RND_STR
 fi
-mkdir -p $OUT_FOLDER
 
 
 {
