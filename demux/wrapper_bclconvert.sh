@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.0 (2026-05-19)
+\n# Version: 1.5.1 (2026-06-30)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -67,13 +67,14 @@ OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 
 # Demux data or copy?
 if [[ -e $IN_FOLDER/Analysis ]]; then
-    read -p "Found demultiplexed data. Do you want to copy this data [y/n]?" choice
+    read -p "Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to use this data [y/n]?" choice
     case "$choice" in 
 	y|Y ) DEMUX=false;;
 	n|N ) DEMUX=true;;
 	* ) echo "invalid option && exit 1";;
     esac
 else
+    echo "Demultiplexing locally (could not find '$IN_FOLDER/Analysis' folder)" >&2
     DEMUX=true
 fi
 EXTRA=$@
@@ -112,7 +113,7 @@ mkdir -p $OUT_FOLDER
     ### Validate SampleSheet
     ss_validate $SS
 
-    if [ $DEMUX = true]; then
+    if [ $DEMUX = true ]; then
 	### Demultiplex
 	# The following parameters are adjusted to reduce the memory and CPU footprints of bcl-convert to fit into the VM.
 	# Use a suitable value from these intervals:
@@ -129,7 +130,6 @@ mkdir -p $OUT_FOLDER
 	    echo `date`" [$RUN] WARNING: Number of analyses does not match"
 	fi
 	### Check run
-	echo `date`" [$RUN] Checking if run has finished successfully"
 	if [ ! -e $IN_FOLDER/CopyComplete.txt ]; then
 	   echo `date`" [$RUN] File $IN_FOLDER/CopyComplete.txt is not present!"
 	   exit 1
@@ -159,7 +159,7 @@ mkdir -p $OUT_FOLDER
 	mkdir -p $PROJ/
 	cd $PROJ/
 
-	if [ $DEMUX = true]; then
+	if [ $DEMUX = true ]; then
 	    echo `date`" [$RUN][$PROJ] Checking GZip files integrity"
 	    ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 gzip --test
 	else
@@ -178,7 +178,7 @@ mkdir -p $OUT_FOLDER
 	if [[ ${#FASTQ_R1[@]} -eq ${#FASTQ_R2[@]} ]]; then
 	    echo `date`" [$RUN][$PROJ] Paired-End run"
 	    #ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 2 bash -c 'check_pe $1 $2' bash
-	elif [[  ${#FASTQ_R2[@]} -eq 1 ]]; then
+	elif [[ ${#FASTQ_R2[@]} -eq 1 ]]; then
 	    echo `date`" [$RUN][$PROJ] Single-End run"
 	    #ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 bash -c 'check_se $1' bash
 	else
