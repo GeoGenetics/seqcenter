@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.3 (2026-07-01)
+\n# Version: 1.5.4 (2026-07-01)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -67,10 +67,10 @@ OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 
 # Demux data or copy?
 if [[ -e $IN_FOLDER/Analysis ]]; then
-    read -p "Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to use this data [y/n]?" choice
+    read -p "Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n]" choice
     case "$choice" in 
-	y|Y ) DEMUX=false;;
-	n|N ) DEMUX=true;;
+	y|Y ) DEMUX=true;;
+	n|N ) DEMUX=false;;
 	* ) echo "invalid option && exit 1";;
     esac
 else
