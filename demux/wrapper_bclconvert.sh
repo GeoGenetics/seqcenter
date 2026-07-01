@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.2 (2026-06-30)
+\n# Version: 1.5.3 (2026-07-01)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -103,6 +103,7 @@ if [ -d $OUT_FOLDER ]; then
     RND_STR=`basename $RND_STR`
     OUT_FOLDER=$OUT_FOLDER-$RND_STR
 fi
+mkdir -p $OUT_FOLDER
 
 
 {
@@ -121,7 +122,7 @@ fi
 	#   --bcl-num-compression-threads   = 2..4
 	#   --bcl-num-decompression-threads = 1..2
 	echo `date`" [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
-	bcl-convert --bcl-num-parallel-tiles 1 --bcl-num-conversion-threads 4 --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true $EXTRA
+	bcl-convert --bcl-num-parallel-tiles 1 --bcl-num-conversion-threads 4 --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true --force $EXTRA
     else
 	### Choose latest run
 	IN_FOLDERS=($IN_FOLDER/Analysis/[0-9]/Data)
