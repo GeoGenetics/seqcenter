@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.4 (2026-07-01)
+\n# Version: 1.5.5 (2026-07-13)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -117,7 +117,6 @@ mkdir -p $OUT_FOLDER
 	### Demultiplex
 	# The following parameters are adjusted to reduce the memory and CPU footprints of bcl-convert to fit into the VM.
 	# Use a suitable value from these intervals:
-	#   --bcl-num-parallel-tiles        = 1..2
 	#   --bcl-num-conversion-threads    = 2..4
 	#   --bcl-num-compression-threads   = 2..4
 	#   --bcl-num-decompression-threads = 1..2
@@ -224,36 +223,24 @@ mkdir -p $OUT_FOLDER
     if [ $CAEG_DATA = true ]; then
 	: "${DB_PASSWORD:?DB_PASSWORD is not set}"
 	echo `date`" [$RUN] Uploading metadata to SMDB"
-	SMDB_UPLOAD_SCRIPT="$BASEDIR/smdb-upload/smdb_upload.py"
-
-	DEMUX_STATS_CSV="$OUT_FOLDER/Reports/Demultiplex_Stats.csv"
-	RUNINFO_XML="$OUT_FOLDER/Reports/RunInfo.xml"
-	UPLOAD_RECEIPTS_TO="julie.bitz-thorsen@sund.ku.dk"
-	DB_NAME="smdb"
-	DB_SCHEMA="uploaded_data"
-	DB_USER="upload_user"
-	DB_HOST="dandypdb01fl"
-	DB_PORT="5432"
-	DB_TABLE="flowcell"
-
-	python3 "$SMDB_UPLOAD_SCRIPT" \
-		--path_to_demultiplex_stats "$DEMUX_STATS_CSV" \
-		--path_to_run_info "$RUNINFO_XML" \
-		--path_to_sample_sheet "$SS" \
-		--db_name "$DB_NAME" \
-		--schema_name "$DB_SCHEMA" \
-		--db_user "$DB_USER" \
+	python3 $BASEDIR/smdb-upload/smdb_upload.py \
+		--path_to_demultiplex_stats $OUT_FOLDER/Reports/Demultiplex_Stats.csv \
+		--path_to_run_info $OUT_FOLDER/Reports/RunInfo.xml \
+		--path_to_sample_sheet $SS \
+		--db_name smdb \
+		--schema_name uploaded_data \
+		--db_user upload_user \
 		--db_password "$DB_PASSWORD" \
-		--db_host "$DB_HOST" \
-		--db_port "$DB_PORT" \
-		--table_name "$DB_TABLE" \
-		--send_upload_receipts_to "$UPLOAD_RECEIPTS_TO"
+		--db_host dandypdb01fl \
+		--db_port 5432 \
+		--table_name flowcell \
+		--send_upload_receipts_to "julie.bitz-thorsen@sund.ku.dk"
     fi
 
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
 
 
 TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
-touch seqcenter.$TIMESTAMP.done
+touch $OUT_FOLDER/seqcenter.$TIMESTAMP.done
 
 exit 0
