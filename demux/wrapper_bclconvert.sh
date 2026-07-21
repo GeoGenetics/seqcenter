@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.5 (2026-07-13)
+\n# Version: 1.5.6 (2026-07-26)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -64,24 +64,12 @@ THREADS=5
 IN_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
-
-# Demux data or copy?
-if [[ -e $IN_FOLDER/Analysis ]]; then
-    read -p "Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n]" choice
-    case "$choice" in 
-	y|Y ) DEMUX=true;;
-	n|N ) DEMUX=false;;
-	* ) echo "invalid option && exit 1";;
-    esac
-else
-    echo "Demultiplexing locally (could not find '$IN_FOLDER/Analysis' folder)" >&2
-    DEMUX=true
-fi
 EXTRA=$@
 
 if [ -z "${DB_PASSWORD:-}" ]; then
-    echo "WARNING: DB_PASSWORD not set and upload to SMDB will be skipped" >&2
+    echo `date`" [WARNING] DB_PASSWORD not set and upload to SMDB will be skipped." >&2
 fi
+
 
 RUN=`basename $IN_FOLDER`
 # Add 20 year prefix, if not present
@@ -96,6 +84,21 @@ else
     OUT_FOLDER=$OUT_FOLDER/$RUN
     CAEG_DATA=false
 fi
+
+
+# Demux data or copy?
+if [[ -e $IN_FOLDER/Analysis ]]; then
+    read -p `date`" [$RUN] Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n]" choice
+    case "$choice" in 
+	y|Y ) DEMUX=true;;
+	n|N ) DEMUX=false;;
+	* ) echo "invalid option" && exit 1;;
+    esac
+else
+    echo `date`" [$RUN] Demultiplexing locally (could not find '$IN_FOLDER/Analysis' folder)" >&2
+    DEMUX=true
+fi
+
 
 # Check if output folder exists
 if [ -d $OUT_FOLDER ]; then
@@ -126,7 +129,7 @@ mkdir -p $OUT_FOLDER
 	### Choose latest run
 	IN_FOLDERS=($IN_FOLDER/Analysis/[0-9]/Data)
 	if [[ $IN_FOLDER/Analysis/${#IN_FOLDERS[*]}/Data != ${IN_FOLDERS[-1]} ]]; then
-	    echo `date`" [$RUN] WARNING: Number of analyses does not match"
+	    echo `date`" [$RUN][WARNING] Number of analyses does not match!"
 	fi
 	### Check run
 	if [ ! -e $IN_FOLDER/CopyComplete.txt ]; then
@@ -240,6 +243,7 @@ mkdir -p $OUT_FOLDER
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
 
 
+echo `date`" [$RUN] Demultiplexing done!"
 TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
 touch $OUT_FOLDER/seqcenter.$TIMESTAMP.done
 
