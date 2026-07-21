@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.6 (2026-07-26)
+\n# Version: 1.5.7 (2026-07-21)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -18,12 +18,10 @@ module load python/3.12.8 miller/6.16.0
 python3 -c 'import samshee'
 python3 -c 'import argparse'
 python3 -c 'import logging'
-python3 -c 'import numpy'
 python3 -c 'import pandas'
 python3 -c 'import pathlib'
 python3 -c 'import collections'
 python3 -c 'import plotly'
-python3 -c 'import matplotlib'
 python3 -c 'import psycopg2'
 python3 -c 'import sqlalchemy'
 
@@ -67,7 +65,7 @@ OUT_FOLDER=`realpath --canonicalize-existing --no-symlinks $1`; shift
 EXTRA=$@
 
 if [ -z "${DB_PASSWORD:-}" ]; then
-    echo `date`" [WARNING] DB_PASSWORD not set and upload to SMDB will be skipped." >&2
+    echo "$(date) [WARNING] DB_PASSWORD not set and upload to SMDB will be skipped." >&2
 fi
 
 
@@ -88,24 +86,24 @@ fi
 
 # Demux data or copy?
 if [[ -e $IN_FOLDER/Analysis ]]; then
-    read -p `date`" [$RUN] Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n]" choice
+    read -p "$(date) [$RUN] Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n/q]: " choice
     case "$choice" in 
 	y|Y ) DEMUX=true;;
 	n|N ) DEMUX=false;;
+	q|Q ) exit 0;;
 	* ) echo "invalid option" && exit 1;;
     esac
 else
-    echo `date`" [$RUN] Demultiplexing locally (could not find '$IN_FOLDER/Analysis' folder)" >&2
+    echo "$(date) [$RUN] Demultiplexing locally (could not find '$IN_FOLDER/Analysis' folder)" >&2
     DEMUX=true
 fi
 
 
 # Check if output folder exists
 if [ -d $OUT_FOLDER ]; then
-    RND_STR=`mktemp --directory --dry-run`
-    RND_STR=`basename $RND_STR`
-    OUT_FOLDER=$OUT_FOLDER-$RND_STR
+    OUT_FOLDER=`mktemp --directory --dry-run $OUT_FOLDER-tmp.XXXXXXXXXX`
 fi
+# Need to create folder to store LOG file
 mkdir -p $OUT_FOLDER
 
 
@@ -123,30 +121,30 @@ mkdir -p $OUT_FOLDER
 	#   --bcl-num-conversion-threads    = 2..4
 	#   --bcl-num-compression-threads   = 2..4
 	#   --bcl-num-decompression-threads = 1..2
-	echo `date`" [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
+	echo "$(date) [$RUN] Demultiplexing from '$IN_FOLDER' to '$OUT_FOLDER' with SampleSheet '$SS' (and extra: '$EXTRA')"
 	bcl-convert --bcl-num-parallel-tiles 1 --bcl-num-conversion-threads 4 --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory $IN_FOLDER --output-directory $OUT_FOLDER --sample-sheet $SS --bcl-sampleproject-subdirectories true --force $EXTRA
     else
 	### Choose latest run
 	IN_FOLDERS=($IN_FOLDER/Analysis/[0-9]/Data)
 	if [[ $IN_FOLDER/Analysis/${#IN_FOLDERS[*]}/Data != ${IN_FOLDERS[-1]} ]]; then
-	    echo `date`" [$RUN][WARNING] Number of analyses does not match!"
+	    echo "$(date) [$RUN][WARNING] Number of analyses does not match!"
 	fi
 	### Check run
 	if [ ! -e $IN_FOLDER/CopyComplete.txt ]; then
-	   echo `date`" [$RUN] File $IN_FOLDER/CopyComplete.txt is not present!"
-	   exit 1
+	    echo "$(date) [$RUN] File $IN_FOLDER/CopyComplete.txt is not present!"
+	    exit 1
 	fi
 	if [ ! -e ${IN_FOLDERS[-1]}/Secondary_Analysis_Complete.txt ]; then
-	   echo `date`" [$RUN] File $IN_FOLDER/Secondary_Analysis_Complete.txt is not present!"
-	   exit 1
+	    echo "$(date) [$RUN] File $IN_FOLDER/Secondary_Analysis_Complete.txt is not present!"
+	    exit 1
 	fi
 	### Copy demultiplexed data
 	mkdir -p $OUT_FOLDER/Reports
-	echo `date`" [$RUN] Copying reports to $OUT_FOLDER/Reports"
+	echo "$(date) [$RUN] Copying reports to $OUT_FOLDER/Reports"
 	rsync -Par $IN_FOLDER/Run*.xml ${IN_FOLDERS[-1]}/SampleSheet.csv $OUT_FOLDER/Reports/.
 	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Reports/* $OUT_FOLDER/Reports/.
 	rsync -Par ${IN_FOLDERS[-1]}/Demux/*.{csv,bin} $OUT_FOLDER/Reports/.
-	echo `date`" [$RUN] Copying Undetermined FASTQ"
+	echo "$(date) [$RUN] Copying Undetermined FASTQ"
 	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Undetermined*.fastq.gz $OUT_FOLDER/.
 	# Switch IN_FOLDER
 	IN_FOLDER=${IN_FOLDERS[-1]}
@@ -162,45 +160,45 @@ mkdir -p $OUT_FOLDER
 	cd $PROJ/
 
 	if [ $DEMUX = true ]; then
-	    echo `date`" [$RUN][$PROJ] Checking GZip files integrity"
+	    echo "$(date) [$RUN][$PROJ] Checking GZip files integrity"
 	    ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 gzip --test
 	else
-	    echo `date`" [$RUN][$PROJ] Copying demultiplexed data from '$IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ' to project folder $PROJ"
+	    echo "$(date) [$RUN][$PROJ] Copying demultiplexed data from '$IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ' to project folder $PROJ"
 	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ/*.fastq.gz .
-	    echo `date`" [$RUN][$PROJ] Copying FASTQC from '$IN_FOLDER/$PROJ/BCLConvert' to project folder $PROJ"
+	    echo "$(date) [$RUN][$PROJ] Copying FASTQC from '$IN_FOLDER/$PROJ/BCLConvert' to project folder $PROJ"
 	    mkdir -p fastqc
 	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/*/fastqc/*.csv fastqc/.
 	fi
 
 	## Check if FASTQ is valid
-	#echo `date`" [$RUN][$PROJ] Checking if FASTQ files are valid"
+	#echo "$(date) [$RUN][$PROJ] Checking if FASTQ files are valid"
 	FASTQ_R1=(*_R1_001.fastq.gz)
 	FASTQ_R2=(*_R2_001.fastq.gz)
 	# https://unix.stackexchange.com/questions/651119/parallelize-a-function-using-xargs-and-separate-variables
 	if [[ ${#FASTQ_R1[@]} -eq ${#FASTQ_R2[@]} ]]; then
-	    echo `date`" [$RUN][$PROJ] Paired-End run"
+	    echo "$(date) [$RUN][$PROJ] Paired-End run"
 	    #ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 2 bash -c 'check_pe $1 $2' bash
 	elif [[ ${#FASTQ_R2[@]} -eq 1 ]]; then
-	    echo `date`" [$RUN][$PROJ] Single-End run"
+	    echo "$(date) [$RUN][$PROJ] Single-End run"
 	    #ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 bash -c 'check_se $1' bash
 	else
-	    echo `date`" [$RUN][$PROJ] Error inferring if PE or SE sequencing"
+	    echo "$(date) [$RUN][$PROJ] Error inferring if PE or SE sequencing"
 	    exit 1
 	fi
 
 
 	## Create md5sum file
-	echo `date`" [$RUN][$PROJ] Creating MD5 checksums"
+	echo "$(date) [$RUN][$PROJ] Creating MD5 checksums"
 	ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 md5sum > $RUN.$PROJ.md5
 
 
 	## Check duplicated MD5 checksums
-	echo `date`" [$RUN][$PROJ] Checking for duplicated md5 checksums"
+	echo "$(date) [$RUN][$PROJ] Checking for duplicated md5 checksums"
 	cut --delimiter " " --fields 1 $RUN.$PROJ.md5 | sort | uniq -d
 
 
 	## Check FASTQ file sizes
-	echo `date`" [$RUN][$PROJ] Checking FASTQ files with size < 1Mb"
+	echo "$(date) [$RUN][$PROJ] Checking FASTQ files with size < 1Mb"
 	find . -name "*.fastq.gz" -size 1M -printf "%k Kb\t%p\n" | grep -Fv Undetermined || true
 
 
@@ -213,19 +211,19 @@ mkdir -p $OUT_FOLDER
     ### Check cross-contamination
     for POOL in ${POOLS[*]}
     do
-	echo `date`" [$RUN][$POOL] Check cross-contamination"
+	echo "$(date) [$RUN][$POOL] Check cross-contamination"
 	python3 $BASEDIR/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
     done
 
     ### Adapters with >5e6 undetermined reads
-    echo `date`" [$RUN] Adapters with >5e6 undetermined reads"
+    echo "$(date) [$RUN] Adapters with >5e6 undetermined reads"
     mlr --csv filter '$index != "GGGGGGGGGG" && $index2 != "GGGGGGGGGG" && $index != "NNNNNNNNNN" && $index2 != "NNNNNNNNNN" && ${# Reads} > 5e6' $OUT_FOLDER/Reports/Top_Unknown_Barcodes.csv
     cd ../
 
     ### Upload data to SMDB
     if [ $CAEG_DATA = true ]; then
 	: "${DB_PASSWORD:?DB_PASSWORD is not set}"
-	echo `date`" [$RUN] Uploading metadata to SMDB"
+	echo "$(date) [$RUN] Uploading metadata to SMDB"
 	python3 $BASEDIR/smdb-upload/smdb_upload.py \
 		--path_to_demultiplex_stats $OUT_FOLDER/Reports/Demultiplex_Stats.csv \
 		--path_to_run_info $OUT_FOLDER/Reports/RunInfo.xml \
@@ -240,11 +238,9 @@ mkdir -p $OUT_FOLDER
 		--send_upload_receipts_to "julie.bitz-thorsen@sund.ku.dk"
     fi
 
+    echo "$(date) [$RUN] Demultiplexing done!"
+    TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
+    touch $OUT_FOLDER/seqcenter.$TIMESTAMP.done
 } 2>&1 | tee $OUT_FOLDER/$RUN.demux.log
-
-
-echo `date`" [$RUN] Demultiplexing done!"
-TIMESTAMP=`date "+%Y%m%d_%H%M%S"`
-touch $OUT_FOLDER/seqcenter.$TIMESTAMP.done
 
 exit 0
