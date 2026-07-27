@@ -3,8 +3,8 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-05-19
-Version: 1.0.9"""
+Date: 2026-07-27
+Version: 1.0.10"""
 
 import argparse
 import logging
@@ -108,7 +108,11 @@ logging.info(header)
 logging.info(f"Reading Index Hopping Counts file {args.index_counts}")
 idx_cnt = (
     pd.read_csv(args.index_counts, low_memory=False)
-    .drop(["Sample_Project", "% of Hopped Reads", "% of All Reads"], axis=1)
+    .drop(
+        ["Sample_Project", "% of Hopped Reads", "% of All Reads"],
+        axis=1,
+        errors="ignore",
+    )
     .rename(
         columns={
             "Lane": "lane",
@@ -148,17 +152,18 @@ assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
 #########################
 ### Master Index file ###
 #########################
+idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
+idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
+
 if args.index_known:
     logging.info(f"Reading indexes from {args.index_known}")
-    idx_names = pd.read_table(args.index_known)
-    assert (idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()).all(), (
-        "P7 and P5 adapters have different lenghts!"
-    )
+    idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(subset=["P7_INDEX_Seq", "P5_INDEX_Seq"], keep="last")
+    assert (
+        idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()
+    ).all(), "P7 and P5 adapters have different lenghts!"
     # Revcomp P5 index
     if args.p5_revcomp:
-        idx_names["P5_INDEX_Seq"] = idx_names[
-            "P5_INDEX_Seq"
-        ].map(
+        idx_names["P5_INDEX_Seq"] = idx_names["P5_INDEX_Seq"].map(
             lambda x: (
                 x.replace("A", "t")
                 .replace("C", "g")
@@ -167,19 +172,17 @@ if args.index_known:
                 .upper()[::-1]
             )
         )
-    # Add index suffix
-    idx_names["idx_len_diff"] = idx_len_max - idx_names["P7_INDEX_Seq"].str.len()
-    idx_names["idx_len_diff"] = idx_names["idx_len_diff"].clip(0)
 
-    idx_names["P7_INDEX_Seq"] = idx_names.apply(
-        lambda row: row.P7_INDEX_Seq + args.adapter_seqs[0][: row.idx_len_diff], axis=1
-    )
-    idx_names["P5_INDEX_Seq"] = idx_names.apply(
-        lambda row: row.P5_INDEX_Seq + args.adapter_seqs[1][: row.idx_len_diff], axis=1
-    )
-else:
-    idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
-    idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
+# Add index suffix
+idx_names["idx_len_diff"] = idx_len_max - idx_names["P7_INDEX_Seq"].str.len()
+idx_names["idx_len_diff"] = idx_names["idx_len_diff"].clip(0)
+
+idx_names["P7_INDEX_Seq"] = idx_names.apply(
+    lambda row: row.P7_INDEX_Seq + args.adapter_seqs[0][: row.idx_len_diff], axis=1
+)
+idx_names["P5_INDEX_Seq"] = idx_names.apply(
+    lambda row: row.P5_INDEX_Seq + args.adapter_seqs[1][: row.idx_len_diff], axis=1
+)
 logging.debug(f"\n{idx_names}")
 
 
@@ -194,18 +197,6 @@ idx_cnt["p7id"] = idx_cnt["p7seq"].map(
 idx_cnt["p5id"] = idx_cnt["p5seq"].map(
     idx_names.set_index("P5_INDEX_Seq")["P5_INDEX_ID"].to_dict()
 )
-# Use RG
-if idx_cnt["p7id"].isna().all() and idx_cnt["p5id"].isna().all():
-    logging.warning("No known index can be found. Using RG as indexes IDs.")
-    # Use idx_names from RG
-    idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
-    idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
-    idx_cnt["p7id"] = idx_cnt["p7seq"].map(
-        idx_names.set_index("P7_INDEX_Seq")["P7_INDEX_ID"].to_dict()
-    )
-    idx_cnt["p5id"] = idx_cnt["p5seq"].map(
-        idx_names.set_index("P5_INDEX_Seq")["P5_INDEX_ID"].to_dict()
-    )
 idx_cnt.loc[idx_cnt.p7id != idx_cnt.p5id, "RG"] = "unexpected"
 idx_cnt.loc[idx_cnt.p7id.isna() | idx_cnt.p5id.isna(), "RG"] = "unknown"
 

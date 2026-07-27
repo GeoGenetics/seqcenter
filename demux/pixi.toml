@@ -16,3 +16,13 @@ sqlalchemy = ">=2.0.45,<3"
 psycopg2 = ">=2.9.11,<3"
 miller = ">=6.19.0,<7"
 time = ">=1.10,<2"
+
+[environments]
+test = { features = ["test"] }
+format = { features = ["format"], no-default-feature = true }
+
+[feature.test.dependencies]
+ipython = ">=9.15.0,<10"
+
+[feature.format.dependencies]
+black = ">=26.5.1,<27"
