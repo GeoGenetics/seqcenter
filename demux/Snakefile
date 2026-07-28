@@ -1,0 +1,221 @@
+import os
+from pathlib import Path
+import pandas as pd
+from collections import defaultdict
+from samshee.samplesheetv2 import read_samplesheetv2
+
+header = """
+# Name: SnakeDemux
+# Description: Snakemake workflow to demux Illumina runs using bcl-convert.
+# Version: 0.1.0 (2026-07-28)
+# Author: Filipe G. Vieira
+# Mail: fgvieira@sund.ku.dk
+"""
+
+
+### Input
+in_dir = Path(config["bcl"])
+in_analyses = in_dir / "Analysis"
+if in_analyses.exists():
+    in_analysis = sorted(in_analyses.glob("[0-9]/Data"))[0] #[-1]
+
+    assert in_dir / "CopyComplete.txt", "File CopyComplete.txt is not present!"
+    assert (
+        in_analysis / "Secondary_Analysis_Complete.txt"
+    ), "File Secondary_Analysis_Complete.txt is not present!"
+
+    print(
+        f"""Found analysis data in '{in_dir / "Analysis"}'. Do you want to demultiplex this data again? [y/n/q]: """,
+        end="",
+    )
+    from builtins import input as user_input
+
+    match user_input():
+        case "y" | "Y":
+            print("Re-demultiplexing data...")
+            demux = True
+        case "n" | "N":
+            print("Using existint data...")
+            demux = False
+        case "q" | "Q":
+            print("Quitting...")
+            exit(0)
+        case _:
+            print("Unknown command!")
+            exit(1)
+else:
+    print(
+        f"""Demultiplexing locally (could not find '{in_dir / "Analysis"}' folder)."""
+    )
+    demux = True
+
+
+### Run ID - add 20 year prefix, if not present
+run_id = in_dir.name
+if not run_id.startswith("20"):
+    run_id = f"20{run_id}"
+
+
+### Sample Sheet
+sample_sheet = Path(config["sample_sheet"])
+ss = read_samplesheetv2(sample_sheet)
+ss_reads = range(
+    1,
+    len(
+        [
+            read
+            for read in ss.reads
+            if read.startswith("Read") and read.endswith("Cycles")
+        ]
+    )
+    + 1,
+)
+# Pools
+ss_pools = defaultdict(list)
+[
+    ss_pools[val].append(tag.removeprefix("PoolLane"))
+    for tag, val in ss.header.items()
+    if tag.startswith("PoolLane")
+]
+# Samples
+ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
+ss_samples["sample_n"] = ss_samples.index + 1
+ss_samples = ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read")
+if "Lane" not in ss_samples.columns:
+    ss_lanes = [
+        int(tag.removeprefix("PoolLane"))
+        for tag, val in ss.header.items()
+        if tag.startswith("PoolLane")
+    ]
+    ss_samples = ss_samples.assign(Lane=[ss_lanes] * len(ss_samples)).explode("Lane")
+ss_samples["Lane"] = ss_samples["Lane"].map(lambda x: f"{x:03d}")
+# Lanes
+ss_lanes = ss_samples["Lane"].unique()
+# Proj
+ss_proj = ss_samples["Sample_Project"].unique()
+
+
+### Output
+out_dir = Path(config["out_dir"])
+if out_dir.absolute() == "/maps/datasets/caeg_fastq":
+    out_dir = out_dir / run_id[0:4] / run_id
+    caeg_data = True
+else:
+    out_dir = out_dir / run_id
+    caeg_data = False
+
+# Check if folder exists
+if out_dir.exists():
+    import uuid
+
+    suffix = str(uuid.uuid4()).replace("-", "")[:10]
+    out_dir = Path(f"{out_dir}-tmp.{suffix}")
+    assert not out_dir.exists(), "Random output folder exists!"
+
+
+
+# Import extra rules
+include: "rules/bcl_convert.smk" if demux else "rules/copy.smk"
+
+
+rule qc_undetermined_top:
+    input:
+        out_dir / "Reports" / "Top_Unknown_Barcodes.csv",
+    output:
+        "stats/undetermined_top.tsv",
+    params:
+        extra="""filter '$index != "GGGGGGGGGG" && $index2 != "GGGGGGGGGG" && $index != "NNNNNNNNNN" && $index2 != "NNNNNNNNNN" && ${# Reads} > 5e6""",
+    wrapper:
+        "v9.15.0/utils/miller"
+
+
+rule qc_cross_contamination:
+    input:
+        idx_counts=out_dir / "Reports" / "Index_Hopping_Counts.csv",
+        idx_list=Path(workflow.basedir)
+        / "resources"
+        / "eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt",
+    output:
+        directory(out_dir / "Reports" / "Index_Hopping_Counts" / "{pool}"),
+    log:
+        "logs/qc_cross_contamination/{pool}.log",
+    params:
+        lanes=lambda w: ",".join(ss_pools[w.pool]),
+        extra="--rpm-warn 100",
+    shell:
+        "./cross_contamination.py --index-counts {input.idx_counts} --index-known {input.idx_list} --lanes {params.lanes} {params.extra} --out-prefix {output} > {log}"
+
+
+rule qc_md5sum:
+    input:
+        expand(
+            out_dir
+            / "{item.Sample_Project}"
+            / "{item.Sample_ID}_S{item.sample_n}_L{item.Lane}_R{item.read}_001.fastq.gz",
+            item=lookup(query="Sample_Project == '{Project_ID}'", within=ss_samples),
+        ),
+    output:
+        out_dir / "{Project_ID}" / f"{run_id}.md5",
+    threads: 5
+    shell:
+        "ls {input} | xargs --max-procs {threads} --delimiter '\n' --max-args 1 md5sum | tee {output} | cut --delimiter "
+        " --fields 1 | sort | uniq -d"
+
+
+rule smdb_upload:
+    input:
+        run_info=out_dir / "Reports" / "RunInfo.xml",
+        demux_stats=out_dir / "Reports" / "Demultiplex_Stats.csv",
+        sample_sheet=sample_sheet,
+    log:
+        "logs/smdb_upload.log",
+    params:
+        db_password=os.environ.get("DB_PASSWORD"),
+        mail="julie.bitz-thorsen@sund.ku.dk",
+        extra="--db_host dandypdb01fl --db_port 5432 --db_name smdb --schema_name uploaded_data --db_user upload_user --table_name flowcell",
+    shell:
+        "./smdb-upload/smdb_upload.py --path_to_demultiplex_stats {input.demux_stats} --path_to_run_info {input.run_info} --path_to_sample_sheet {input.sample_sheet} {params.extra} --db_password {params.db_password:q} --send_upload_receipts_to {params.mail:q} > {log} 2>&1"
+
+
+rule all:
+    default_target: True
+    input:
+        ### Reports
+        expand(
+            out_dir / "Reports" / "{report}",
+            report=[
+                "RunCompletionStatus.xml",
+                "RunInfo.xml",
+                "RunParameters.xml",
+                "SampleSheet.csv",
+                "Demultiplex_Stats.csv",
+                "Demultiplex_Tile_Stats.csv",
+                "Index_Hopping_Counts.csv",
+                "IndexMetricsOut.bin",
+                "Top_Unknown_Barcodes.csv",
+                "Adapter_Cycle_Metrics.csv",
+                "Adapter_Metrics.csv",
+                "Quality_Metrics.csv",
+                "Quality_Tile_Metrics.csv",
+            ],
+        ),
+	### FASTQC
+        [
+            expand(rules.reports_fastqc.output, **sample)
+            for sample in ss_samples.assign(
+                type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
+            )
+            .explode("type")
+            .to_dict("records")
+        ] if not demux else [],
+        ### FASTQ
+        [
+            expand(rules.fastq_sample.output, **sample)
+            for sample in ss_samples.to_dict("records")
+        ],
+        expand(rules.fastq_undetermined.output, Lane=ss_lanes, read=ss_reads),
+	### QC
+        rules.qc_undetermined_top.output,
+        expand(rules.qc_cross_contamination.output, pool=ss_pools.keys()),
+        expand(rules.qc_md5sum.output, Project_ID=ss_proj),
+        rules.smdb_upload.log if os.environ.get("DB_PASSWORD") else [],

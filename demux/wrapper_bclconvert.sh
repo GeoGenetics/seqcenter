@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.8 (2026-07-28)
+\n# Version: 1.5.9 (2026-07-28)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -212,7 +212,7 @@ mkdir -p $OUT_FOLDER
     for POOL in ${POOLS[*]}
     do
 	echo "$(date) [$RUN][$POOL] Check cross-contamination"
-	python3 $BASEDIR/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
+	python3 $BASEDIR/scripts/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/resources/eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
     done
 
     ### Adapters with >5e6 undetermined reads
@@ -224,7 +224,7 @@ mkdir -p $OUT_FOLDER
     if [ $CAEG_DATA = true ]; then
 	: "${DB_PASSWORD:?DB_PASSWORD is not set}"
 	echo "$(date) [$RUN] Uploading metadata to SMDB"
-	python3 $BASEDIR/smdb-upload/smdb_upload.py \
+	python3 $BASEDIR/scripts/smdb-upload/smdb_upload.py \
 		--path_to_demultiplex_stats $OUT_FOLDER/Reports/Demultiplex_Stats.csv \
 		--path_to_run_info $OUT_FOLDER/Reports/RunInfo.xml \
 		--path_to_sample_sheet $SS \
