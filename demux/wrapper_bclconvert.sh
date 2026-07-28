@@ -6,7 +6,7 @@ set -euo pipefail
 HEADER='
 \n# Script Name: wrapper_bclconvert.sh
 \n# Description: Wrapper script to demux Illumina runs using bcl-convert.
-\n# Version: 1.5.7 (2026-07-21)
+\n# Version: 1.5.8 (2026-07-28)
 \n# Author: Filipe G. Vieira
 \n# Mail: fgvieira@sund.ku.dk
 '
@@ -86,8 +86,8 @@ fi
 
 # Demux data or copy?
 if [[ -e $IN_FOLDER/Analysis ]]; then
-    read -p "$(date) [$RUN] Found demultiplexed data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n/q]: " choice
-    case "$choice" in 
+    read -p "$(date) [$RUN] Found analysis data in '$IN_FOLDER/Analysis'. Do you want to demultiplex this data again? [y/n/q]: " choice
+    case "$choice" in
 	y|Y ) DEMUX=true;;
 	n|N ) DEMUX=false;;
 	q|Q ) exit 0;;
@@ -135,17 +135,17 @@ mkdir -p $OUT_FOLDER
 	    exit 1
 	fi
 	if [ ! -e ${IN_FOLDERS[-1]}/Secondary_Analysis_Complete.txt ]; then
-	    echo "$(date) [$RUN] File $IN_FOLDER/Secondary_Analysis_Complete.txt is not present!"
+	    echo "$(date) [$RUN] File $IN_FOLDERS[-1]/Secondary_Analysis_Complete.txt is not present!"
 	    exit 1
 	fi
 	### Copy demultiplexed data
 	mkdir -p $OUT_FOLDER/Reports
 	echo "$(date) [$RUN] Copying reports to $OUT_FOLDER/Reports"
-	rsync -Par $IN_FOLDER/Run*.xml ${IN_FOLDERS[-1]}/SampleSheet.csv $OUT_FOLDER/Reports/.
-	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Reports/* $OUT_FOLDER/Reports/.
-	rsync -Par ${IN_FOLDERS[-1]}/Demux/*.{csv,bin} $OUT_FOLDER/Reports/.
+	rsync -a $IN_FOLDER/Run*.xml ${IN_FOLDERS[-1]}/SampleSheet.csv $OUT_FOLDER/Reports/.
+	rsync -a ${IN_FOLDERS[-1]}/BCLConvert/fastq/Reports/* $OUT_FOLDER/Reports/.
+	rsync -a ${IN_FOLDERS[-1]}/Demux/*.{csv,bin} $OUT_FOLDER/Reports/.
 	echo "$(date) [$RUN] Copying Undetermined FASTQ"
-	rsync -Par ${IN_FOLDERS[-1]}/BCLConvert/fastq/Undetermined*.fastq.gz $OUT_FOLDER/.
+	rsync -a --stats ${IN_FOLDERS[-1]}/BCLConvert/fastq/Undetermined*.fastq.gz $OUT_FOLDER/.
 	# Switch IN_FOLDER
 	IN_FOLDER=${IN_FOLDERS[-1]}
     fi
@@ -164,10 +164,10 @@ mkdir -p $OUT_FOLDER
 	    ls *.fastq.gz | xargs --max-procs $THREADS --delimiter '\n' --max-args 1 gzip --test
 	else
 	    echo "$(date) [$RUN][$PROJ] Copying demultiplexed data from '$IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ' to project folder $PROJ"
-	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ/*.fastq.gz .
+	    rsync -a --stats $IN_FOLDER/$PROJ/BCLConvert/fastq/$PROJ/*.fastq.gz .
 	    echo "$(date) [$RUN][$PROJ] Copying FASTQC from '$IN_FOLDER/$PROJ/BCLConvert' to project folder $PROJ"
 	    mkdir -p fastqc
-	    rsync -Par $IN_FOLDER/$PROJ/BCLConvert/*/fastqc/*.csv fastqc/.
+	    rsync -a --stats $IN_FOLDER/$PROJ/BCLConvert/*/fastqc/*.csv fastqc/.
 	fi
 
 	## Check if FASTQ is valid
