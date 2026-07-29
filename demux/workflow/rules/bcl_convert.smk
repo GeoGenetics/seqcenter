@@ -33,12 +33,12 @@ rule bcl_convert:
         "bcl-convert --bcl-num-conversion-threads {threads} --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory {input.bcl} --sample-sheet {input.sample_sheet} {params.extra} --output-directory {output} > {log} 2>&1"
 
 
-
 rule fastq_undetermined:
     input:
         rules.bcl_convert.output.dir,
     output:
         out_dir / "Undetermined_S0_L{Lane}_R{read}_001.fastq.gz",
+    localrule: True
 
 
 rule fastq_sample:
@@ -48,3 +48,4 @@ rule fastq_sample:
         out_dir
         / "{Sample_Project}"
         / "{Sample_ID}_S{sample_n}_L{Lane}_R{read}_001.fastq.gz",
+    localrule: True

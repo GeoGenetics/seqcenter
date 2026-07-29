@@ -1,4 +1,3 @@
-
 ### REPORTS
 rule reports_run:
     input:
@@ -32,7 +31,6 @@ use rule reports_run as reports_fastqc with:
         / "{Sample_ID}.{type}.csv",
     output:
         out_dir / "{Sample_Project}" / "fastqc" / "{Sample_ID}.{type}.csv",
-
 
 
 ### FASTQ
