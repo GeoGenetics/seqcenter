@@ -1,17 +1,36 @@
+
 rule bcl_convert:
     input:
         bcl=in_dir,
         sample_sheet=sample_sheet,
     output:
-        dir=directory(out_dir),
+        # Not created by current version of BCL-convert
+        touch(out_dir / "Reports" / "RunCompletionStatus.xml"),
+        touch(out_dir / "Reports" / "RunParameters.xml"),
+        # Created by BCL-convert
+        fq_samples=[
+            expand(
+                out_dir
+                / "{Sample_Project}"
+                / "{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz",
+                **sample,
+            )
+            for sample in ss_samples[
+                ss_samples["Sample_Project"].ne("Undetermined")
+            ].to_dict("records")
+        ],
+        fq_undetermined=expand(
+            out_dir / "Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz",
+            Lane=ss_lanes,
+            read=ss_reads,
+        ),
         reports=expand(
             out_dir / "Reports" / "{report}",
             report=[
-                "RunCompletionStatus.xml",
                 "RunInfo.xml",
-                "RunParameters.xml",
                 "SampleSheet.csv",
                 "Demultiplex_Stats.csv",
+                "Demultiplex_Detailed_Stats.csv",
                 "Demultiplex_Tile_Stats.csv",
                 "Index_Hopping_Counts.csv",
                 "IndexMetricsOut.bin",
@@ -20,32 +39,36 @@ rule bcl_convert:
                 "Adapter_Metrics.csv",
                 "Quality_Metrics.csv",
                 "Quality_Tile_Metrics.csv",
+                "fastq_list.csv",
             ],
+        ),
+        logs=expand(
+            out_dir / "Logs" / "{log}",
+            log=["Errors.log", "FastqComplete.txt", "Info.log", "Warnings.log"],
         ),
     log:
         "logs/bcl_convert.log",
+    envmodules:
+        "bcl-convert/4.4.6",
     threads: 4
     resources:
         mem="12 GiB",
     params:
+        outdir=lambda w, output: Path(output.fq_undetermined[0]).parent,
         extra="--bcl-num-parallel-tiles 1 --bcl-sampleproject-subdirectories true --force",
     shell:
-        "bcl-convert --bcl-num-conversion-threads {threads} --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory {input.bcl} --sample-sheet {input.sample_sheet} {params.extra} --output-directory {output} > {log} 2>&1"
-
-
-rule fastq_undetermined:
-    input:
-        rules.bcl_convert.output.dir,
-    output:
-        out_dir / "Undetermined_S0_L{Lane}_R{read}_001.fastq.gz",
-    localrule: True
+        "bcl-convert --bcl-num-conversion-threads {threads} --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory {input.bcl} --sample-sheet {input.sample_sheet} {params.extra} --output-directory {params.outdir} > {log} 2>&1"
 
 
 rule fastq_sample:
     input:
-        rules.bcl_convert.output.dir,
+        out_dir / "{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz",
     output:
         out_dir
         / "{Sample_Project}"
-        / "{Sample_ID}_S{sample_n}_L{Lane}_R{read}_001.fastq.gz",
+        / "{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz",
+    wildcard_constraints:
+        Sample_Project="Undetermined",
     localrule: True
+    shell:
+        "ln {input} {output}"
