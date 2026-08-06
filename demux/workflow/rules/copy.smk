@@ -22,6 +22,7 @@ def ss2sss(wildcards, w_keys=None, out_keys=None):
 
 
 ### REPORTS
+ruleorder: reports_ss > reports_run
 rule reports_run:
     input:
         in_dir / "{report}",

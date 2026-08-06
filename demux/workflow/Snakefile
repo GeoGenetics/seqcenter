@@ -40,15 +40,6 @@ ss_pools = defaultdict(list)
 ]
 # Samples
 ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
-ss_samples = pd.concat(
-    [
-        pd.DataFrame(
-            {"Sample_ID": "Undetermined", "Sample_Project": "Undetermined"}, index=[0]
-        ),
-        pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"]),
-    ],
-    ignore_index=True,
-)
 # Assign lanes
 if "Lane" not in ss_samples.columns:
     ss_lanes = [
@@ -57,8 +48,19 @@ if "Lane" not in ss_samples.columns:
         if tag.startswith("PoolLane")
     ]
     ss_samples = ss_samples.assign(Lane=[ss_lanes] * len(ss_samples)).explode("Lane")
+ss_lanes = ss_samples["Lane"].unique().tolist()
+# Add Undetermined
+ss_samples = pd.concat(
+    [
+        pd.DataFrame(
+            {"Sample_ID": "Undetermined", "Sample_Project": "Undetermined", "Lane": [ss_lanes]}, index=[0]
+        ).explode("Lane"),
+        ss_samples,
+    ],
+    ignore_index=True,
+)
 # Assign sample numbers
-ss_samples["sample_n"] = ss_samples.groupby("Lane").cumcount()
+ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0]
 assert (
     ss_samples.drop(columns="Lane")
     .groupby(["Sample_ID", "index", "index2"])
@@ -113,7 +115,7 @@ if in_analyses.exists():
         columns={"Index": "index", "Index2": "index2"}
     )
     # Assign sample numbers
-    sss_samples["sample_n"] = sss_samples.groupby("Lane").cumcount() + 1
+    sss_samples["sample_n"] = pd.factorize(sss_samples["Sample_ID"])[0] + 1
     assert (
         sss_samples.drop(columns="Lane")
         .groupby(["Sample_ID", "index", "index2"])
