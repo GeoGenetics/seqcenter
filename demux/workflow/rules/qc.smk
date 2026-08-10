@@ -1,9 +1,9 @@
 
 rule qc_undetermined_adapters:
     input:
-        out_dir / "Reports" / "Top_Unknown_Barcodes.csv",
+        out_dir / "{run_id}/Reports/Top_Unknown_Barcodes.csv",
     output:
-        temp("temp/undetermined/adapters.tsv"),
+        temp("temp/{run_id}/undetermined/adapters.tsv"),
     params:
         extra="""filter -e '$index != "GGGGGGGGGG" && $index2 != "GGGGGGGGGG" && $index != "NNNNNNNNNN" && $index2 != "NNNNNNNNNN" && ${# Reads} > 5e6'""",
     wrapper:
@@ -12,21 +12,21 @@ rule qc_undetermined_adapters:
 
 rule qc_cross_contamination:
     input:
-        idx_counts=out_dir / "Reports" / "Index_Hopping_Counts.csv",
+        idx_counts=out_dir / "{run_id}/Reports/Index_Hopping_Counts.csv",
         idx_list=Path(workflow.basedir)
         / ".."
         / "resources"
         / "eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt",
     output:
         multiext(
-            str(out_dir / "Reports" / "Index_Hopping_Counts" / "{pool}"),
+            str(out_dir / "{run_id}/Reports/Index_Hopping_Counts/{pool}"),
             ".counts.tsv",
             ".counts.html",
             ".cross_contam.tsv",
             ".cross_contam.html",
         ),
     log:
-        "logs/qc_cross_contamination/{pool}.log",
+        "logs/{run_id}/qc_cross_contamination/{pool}.log",
     conda:
         Path(workflow.basedir) / ".." / "envs" / "cross_contamination.yaml"
     params:
@@ -42,7 +42,7 @@ rule qc_fastq_md5:
         rules.fastq_sample.output,
     output:
         temp(
-            "temp/qc/fastq/md5/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}.md5"
+            "temp/{run_id}/qc/fastq/md5/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}.md5"
         ),
     shell:
         "md5sum {input} > {output}"
@@ -52,15 +52,16 @@ rule qc_fastq_md5sum_cat:
     input:
         # expand(rules.qc_fastq_md5.output, )
         expand(
-            "temp/qc/fastq/md5/{item.Sample_Project}/{item.Sample_ID}_S{item.sample_n}_L00{item.Lane}_R{item.read}.md5",
+            "temp/{run_id}/qc/fastq/md5/{item.Sample_Project}/{item.Sample_ID}_S{item.sample_n}_L00{item.Lane}_R{item.read}.md5",
             item=lookup(
                 query="Sample_Project == '{Sample_Project}'", within=ss_samples
             ),
+            allow_missing=True,
         ),
     output:
-        out_dir / "{Sample_Project}" / f"{run_id}.md5",
+        out_dir / "{run_id}/{Sample_Project}/{run_id}.md5",
     log:
-        "logs/qc/fastq/md5sum/{Sample_Project}.log",
+        "logs/{run_id}/qc/fastq/md5sum/{Sample_Project}.log",
     shell:
         r"cat {input} | sed 's:\S*/::g' | tee {output} | cut --delimiter ' ' --fields 1 | sort | uniq -d > {log}"
 
@@ -70,16 +71,16 @@ rule qc_fastq_size:
         # expand(rules.fastq_sample.output, )
         expand(
             out_dir
-            / "{item.Sample_Project}"
-            / "{item.Sample_ID}_S{item.sample_n}_L00{item.Lane}_R{item.read}_001.fastq.gz",
+            / "{run_id}/{item.Sample_Project}/{item.Sample_ID}_S{item.sample_n}_L00{item.Lane}_R{item.read}_001.fastq.gz",
             item=lookup(
                 query="Sample_Project == '{Sample_Project}'", within=ss_samples
             ),
+            allow_missing=True,
         ),
     output:
-        temp("temp/qc/fastq/size/{Sample_Project}.tsv"),
+        temp("temp/{run_id}/qc/fastq/size/{Sample_Project}.tsv"),
     log:
-        "logs/qc/fastq/size/{Sample_Project}.log",
+        "logs/{run_id}/qc/fastq/size/{Sample_Project}.log",
     params:
         expr=lambda w: "$1 > 1e6" if w.Sample_Project == "Undetermined" else "$1 < 1e6",
     shell:

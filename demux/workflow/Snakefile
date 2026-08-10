@@ -53,7 +53,12 @@ ss_lanes = ss_samples["Lane"].unique().tolist()
 ss_samples = pd.concat(
     [
         pd.DataFrame(
-            {"Sample_ID": "Undetermined", "Sample_Project": "Undetermined", "Lane": [ss_lanes]}, index=[0]
+            {
+                "Sample_ID": "Undetermined",
+                "Sample_Project": "Undetermined",
+                "Lane": [ss_lanes],
+            },
+            index=[0],
         ).explode("Lane"),
         ss_samples,
     ],
@@ -190,18 +195,14 @@ if not run_id.startswith("20"):
 ##############
 out_dir = Path(config["out_dir"])
 if out_dir.absolute() == "/maps/datasets/caeg_fastq":
-    out_dir = out_dir / run_id[0:4] / run_id
+    out_dir = out_dir / run_id[0:4]
     caeg_data = True
 else:
-    out_dir = out_dir / run_id
     caeg_data = False
-
 # Check if folder exists
-if out_dir.exists() and not config.get("resume", False):
-    import uuid
-    suffix = config.get("suffix", str(uuid.uuid4()).replace("-", "")[:10])
-    out_dir = Path(f"{out_dir}-tmp.{suffix}")
-    assert not out_dir.exists(), "Random output folder exists!"
+assert not (out_dir / run_id).exists() or config.get(
+    "resume", False
+), f"Output folder {out_dir / run_id} already exists! Please rename folder and re-try."
 
 
 # Import extra rules
@@ -212,10 +213,16 @@ include: "rules/smdb.smk"
 
 # Copy log
 onsuccess:
-    shell("cp {log} {out_dir / '.'}")
+    shell("cp {log} {out_dir}/{run_id}/.")
 
-onerror:
-    shell("cp {log} {out_dir / '.'}")
+
+wildcard_constraints:
+    run_id=run_id,
+    Sample_Project="|".join(ss_proj + ["Undetermined"]),
+    pool="|".join(ss_pools.keys()),
+    sample_n=r"\d+",
+    Lane="|".join(map(str, ss_lanes)),
+    read="|".join(map(str, ss_reads)),
 
 
 # Rules
@@ -223,12 +230,20 @@ rule qc:
     input:
         rules.bcl_convert.log if demux else [],
         rules.qc_undetermined_adapters.output,
-        expand(rules.qc_fastq_size.output, Sample_Project=ss_proj + ["Undetermined"]),
-        expand(rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj),
-        expand(rules.qc_cross_contamination.log, pool=ss_pools.keys()),
+        expand(
+            rules.qc_fastq_size.output,
+            Sample_Project=ss_proj + ["Undetermined"],
+            allow_missing=True,
+        ),
+        expand(
+            rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj, allow_missing=True
+        ),
+        expand(
+            rules.qc_cross_contamination.log, pool=ss_pools.keys(), allow_missing=True
+        ),
         rules.smdb_upload.log if os.environ.get("DB_PASSWORD") and caeg_data else [],
     output:
-        touch(out_dir / f"{run_id}.log"),
+        touch(out_dir / "{run_id}/{run_id}.log"),
     shell:
         "head -n 1000000 {input} > {output}"
 
@@ -236,9 +251,16 @@ rule qc:
 rule all:
     default_target: True
     input:
+        ### Logs
+        #expand(
+        #    out_dir / "{run_id}/Logs/{log}.log",
+        #    run_id=run_id,
+        #    log=["Info", "Warnings", "Errors"],
+        #),
         ### Reports
         expand(
-            out_dir / "Reports" / "{report}",
+            out_dir / "{run_id}/Reports/{report}",
+            run_id=run_id,
             report=[
                 "RunCompletionStatus.xml",
                 "RunInfo.xml",
@@ -257,7 +279,7 @@ rule all:
         ),
         ### FASTQC
         [
-            expand(rules.reports_fastqc.output, **sample)
+            expand(rules.reports_fastqc.output, run_id=run_id, **sample)
             for sample in ss_samples.assign(
                 type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
             )[ss_samples["Sample_Project"].ne("Undetermined")]
@@ -268,11 +290,11 @@ rule all:
         else [],
         ### FASTQ
         [
-            expand(rules.fastq_sample.output, **sample)
+            expand(rules.fastq_sample.output, run_id=run_id, **sample)
             for sample in ss_samples.to_dict("records")
         ],
         # QC
-        rules.qc.output,
+        expand(rules.qc.output, run_id=run_id),
     output:
         touch(out_dir / "seqcenter.done"),
     message:
