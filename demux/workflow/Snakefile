@@ -98,65 +98,32 @@ if in_analyses.exists():
     print(
         f"""Found analysis data in '{in_analysis}'. Do you want to demultiplex this data again? [y/n/q]: """,
         end="",
+	file=sys.stderr,
     )
-    from builtins import input as user_input
+    demux = config.get("demux")
+    if not demux:
+        from builtins import input as user_input
+        demux = user_input()
 
-    match user_input():
-        case "y" | "Y":
-            print("Re-demultiplexing data...")
+    match demux:
+        case "y" | "Y" | "yes" | "Yes" | "YES":
+            print("Re-demultiplexing data...", file=sys.stderr)
             demux = True
-        case "n" | "N":
-            print("Using existing data...")
+        case "n" | "N" | "no" | "No" | "NO":
+            print("Using existing data...", file=sys.stderr)
             demux = False
-        case "q" | "Q":
-            print("Quitting...")
+        case "q" | "Q" | "quit" | "Quit" | "QUIT":
+            print("Quitting...", file=sys.stderr)
             exit(0)
         case _:
-            print("Unknown command!")
+            print("Unknown command!", file=sys.stderr)
             exit(1)
-
-    sss = read_samplesheetv2(in_analysis / "SampleSheet.csv")
-    sss_samples = pd.DataFrame.from_dict(sss.applications["BCLConvert"]["data"]).rename(
-        columns={"Index": "index", "Index2": "index2"}
-    )
-    # Assign sample numbers
-    sss_samples["sample_n"] = pd.factorize(sss_samples["Sample_ID"])[0] + 1
-    assert (
-        sss_samples.drop(columns="Lane")
-        .groupby(["Sample_ID", "index", "index2"])
-        .nunique()["sample_n"]
-        .eq(1)
-        .all()
-    ), "Sample_ID have different Sample_N. Check your instrument Samplesheet."
-    # Assign R1/R2
-    sss_samples = (
-        sss_samples.assign(read=[ss_reads] * len(sss_samples))
-        .explode("read")
-        .astype("str")
-    )
 else:
     print(
-        f"""Demultiplexing locally (could not find '{in_dir / "Analysis"}' folder)."""
+        f"""Demultiplexing locally (could not find '{in_dir / "Analysis"}' folder).""",
+	file=sys.stderr,
     )
     demux = True
-
-
-# Use SSS, if not re-demux
-if not demux:
-    # Merge SS and SSS
-    ss_samples = ss_samples.join(
-        sss_samples.set_index(["index", "index2", "Lane", "read"]),
-        on=["index", "index2", "Lane", "read"],
-        how="outer",
-        rsuffix="_demux",
-        validate="1:1",
-    )
-    ss_samples.loc[ss_samples["Sample_ID"] == "Undetermined", "sample_n_demux"] = "0"
-    # Mark remaining indexes as "Undetermined"
-    mask = ss_samples["Sample_ID"].isna()
-    ss_samples.loc[mask, "Sample_ID"] = ss_samples.loc[mask, "Sample_ID_demux"]
-    ss_samples.loc[mask, "sample_n"] = ss_samples.loc[mask, "sample_n_demux"]
-    ss_samples.loc[mask, "Sample_Project"] = "Undetermined"
 assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
 
 
@@ -248,13 +215,11 @@ rule qc:
         "head -n 1000000 {input} > {output}"
 
 
-rule all:
-    default_target: True
+rule demux:
     input:
         ### Logs
         #expand(
         #    out_dir / "{run_id}/Logs/{log}.log",
-        #    run_id=run_id,
         #    log=["Info", "Warnings", "Errors"],
         #),
         ### Reports
@@ -279,7 +244,7 @@ rule all:
         ),
         ### FASTQC
         [
-            expand(rules.reports_fastqc.output, run_id=run_id, **sample)
+            expand(rules.reports_fastqc.output, **sample, allow_missing=True)
             for sample in ss_samples.assign(
                 type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
             )[ss_samples["Sample_Project"].ne("Undetermined")]
@@ -290,12 +255,18 @@ rule all:
         else [],
         ### FASTQ
         [
-            expand(rules.fastq_sample.output, run_id=run_id, **sample)
+            expand(rules.fastq_sample.output, **sample, allow_missing=True)
             for sample in ss_samples.to_dict("records")
         ],
         # QC
-        expand(rules.qc.output, run_id=run_id),
+        rules.qc.output,
     output:
-        touch(out_dir / "seqcenter.done"),
+        touch(out_dir / "{run_id}/seqcenter.done"),
     message:
         "Demultiplexing done!"
+
+
+rule all:
+    default_target: True
+    input:
+        expand(rules.demux.output, run_id=run_id),
