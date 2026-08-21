@@ -2,11 +2,11 @@
 
 set -euxo pipefail
 
-IN_BCL="/mnt/nfs/bcldata/20260427_LH01056_0033_A23MTWJLT4"
-SS="/mnt/groupdir/SUN-GI-GGSC-samplesheets/260427_samplesheet_PLUS25A.csv"
-OUT_DIR="."
+IN_BCL="/mnt/nfs/bcldata/20260810_LH01056_0075_A23JC7CLT3/"
+SS="/mnt/groupdir/SUN-GI-GGSC-samplesheets/260810_samplesheet_PLUS10A.csv"
+OUT_DIR=`pwd`
 
-SNAKEMAKE="snakemake -c 4 -s ../../workflow/Snakefile --workflow-profile ../../../resources/profile/PROD.profile.yaml --forceall --config bcl=$IN_BCL sample_sheet=$SS out_dir=$OUT_DIR"
+SNAKEMAKE="snakemake --snakefile ../../workflow/Snakefile --workflow-profile ../../resources/profile/PROD.profile.yaml --forceall --config bcl=$IN_BCL sample_sheet=$SS out_dir=$OUT_DIR idx_list=resources/IndexInformation_20260819JBT.tsv"
 
 cd bcl_convert
 $SNAKEMAKE demux=yes --dryrun

@@ -1,14 +1,18 @@
 import os
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 from collections import defaultdict
 from samshee.samplesheetv2 import read_samplesheetv2
 
+snakemake.utils.min_version("9.22.0")
+start_time = datetime.now()
+
 header = """
 # Name: SnakeDemux
-# Description: Snakemake workflow to demux Illumina runs using bcl-convert.
-# Version: 0.1.0 (2026-07-28)
+# Description: Snakemake workflow to demultiplex Illumina runs.
+# Version: 0.1.0 (2026-08-14)
 # Author: Filipe G. Vieira
 # Mail: fgvieira@sund.ku.dk
 """
@@ -40,6 +44,9 @@ ss_pools = defaultdict(list)
 ]
 # Samples
 ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
+assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
+# Projects
+ss_proj = ss_samples["Sample_Project"].unique().tolist()
 # Assign lanes
 if "Lane" not in ss_samples.columns:
     ss_lanes = [
@@ -49,34 +56,33 @@ if "Lane" not in ss_samples.columns:
     ]
     ss_samples = ss_samples.assign(Lane=[ss_lanes] * len(ss_samples)).explode("Lane")
 ss_lanes = ss_samples["Lane"].unique().tolist()
-# Add Undetermined
-ss_samples = pd.concat(
-    [
-        pd.DataFrame(
-            {
-                "Sample_ID": "Undetermined",
-                "Sample_Project": "Undetermined",
-                "Lane": [ss_lanes],
-            },
-            index=[0],
-        ).explode("Lane"),
-        ss_samples,
-    ],
-    ignore_index=True,
-)
 # Assign sample numbers
-ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0]
+ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
 assert (
     ss_samples.drop(columns="Lane")
-    .groupby(["Sample_ID", "index", "index2"])
+    .groupby(["Sample_ID"])
     .nunique()["sample_n"]
     .eq(1)
     .all()
-), "Sample_ID have different Sample_N. Check your main Samplesheet."
+), "Sample_ID have different Sample_N. Check your Samplesheet."
 # Assign R1/R2
 ss_samples = (
     ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read").astype("str")
 )
+
+
+##################
+### Index List ###
+##################
+config["idx_list"] = Path(config["idx_list"])
+if not config["idx_list"].is_absolute():
+    config["idx_list"] = (Path(workflow.basedir) / ".." / config["idx_list"]).resolve()
+# Check if indexes are in SS
+idx_list = pd.read_table(config["idx_list"])
+assert all(
+    ss_samples["Index"].isin(idx_list["P7_INDEX_Seq"])
+    == ss_samples["Index2"].isin(idx_list["P5_INDEX_Seq"])
+), "unknown index pairs in SampleSheet"
 
 
 ###########
@@ -98,11 +104,12 @@ if in_analyses.exists():
     print(
         f"""Found analysis data in '{in_analysis}'. Do you want to demultiplex this data again? [y/n/q]: """,
         end="",
-	file=sys.stderr,
+        file=sys.stderr,
     )
     demux = config.get("demux")
     if not demux:
         from builtins import input as user_input
+
         demux = user_input()
 
     match demux:
@@ -121,18 +128,9 @@ if in_analyses.exists():
 else:
     print(
         f"""Demultiplexing locally (could not find '{in_dir / "Analysis"}' folder).""",
-	file=sys.stderr,
+        file=sys.stderr,
     )
     demux = True
-assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
-
-
-# Projects
-ss_proj = (
-    ss_samples.query('Sample_Project != "Undetermined"')["Sample_Project"]
-    .unique()
-    .tolist()
-)
 
 
 ### Check if run_id a sample_sheet match (date and side)
@@ -145,9 +143,7 @@ run_id = re.search(
     in_dir.name,
 ).groupdict()
 assert (
-    ss_id["date"] == run_id["date"]
-    and ss_id["side"] == run_id["side"]
-    and ss.header.get("FlowcellID") == run_id["flowcell_id"]
+    ss_id["date"] == run_id["date"] and ss_id["side"] == run_id["side"]
 ), "run and samplesheet do not match"
 
 
@@ -161,7 +157,7 @@ if not run_id.startswith("20"):
 ### Output ###
 ##############
 out_dir = Path(config["out_dir"])
-if out_dir.absolute() == "/maps/datasets/caeg_fastq":
+if out_dir.resolve() == Path("/maps/datasets/caeg_fastq"):
     out_dir = out_dir / run_id[0:4]
     caeg_data = True
 else:
@@ -169,62 +165,87 @@ else:
 # Check if folder exists
 assert not (out_dir / run_id).exists() or config.get(
     "resume", False
-), f"Output folder {out_dir / run_id} already exists! Please rename folder and re-try."
+), f"Output folder {out_dir / run_id} already exists! Please rename folder and retry."
 
 
-# Import extra rules
-include: "rules/bcl_convert.smk" if demux else "rules/copy.smk"
-include: "rules/qc.smk"
-include: "rules/smdb.smk"
+# Paths
+fastq_sample = "<out_dir>/{run_id}/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz"
+fastq_undetermined = "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz"
+
+
+pathvars:
+    in_dir=str(in_dir),
+    in_analysis=str(in_analysis),
+    out_dir=str(out_dir),
 
 
 # Copy log
 onsuccess:
+    runtime = datetime.now() - start_time
+    with open(log[0], "a") as f:
+        f.write(f"Total runtime: {runtime}")
     shell("cp {log} {out_dir}/{run_id}/.")
 
 
 wildcard_constraints:
     run_id=run_id,
-    Sample_Project="|".join(ss_proj + ["Undetermined"]),
+    Sample_Project="|".join(ss_proj),
     pool="|".join(ss_pools.keys()),
     sample_n=r"\d+",
     Lane="|".join(map(str, ss_lanes)),
     read="|".join(map(str, ss_reads)),
 
 
+# Import rules
+include: "rules/bcl_convert.smk" if demux else "rules/copy.smk"
+include: "rules/qc.smk"
+include: "rules/smdb.smk"
+
+
 # Rules
 rule qc:
     input:
         rules.bcl_convert.log if demux else [],
-        rules.qc_undetermined_adapters.output,
+        # Logs
         expand(
-            rules.qc_fastq_size.output,
-            Sample_Project=ss_proj + ["Undetermined"],
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Warnings", "Errors"],
             allow_missing=True,
         ),
+        # Number of reads
+        rules.qc_fastq_nreads.output,
+        rules.qc_undetermined_nreads.output,
+        # Sample FASTQ MD5
         expand(
             rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj, allow_missing=True
         ),
+        # Pool Cross-contamination
         expand(
-            rules.qc_cross_contamination.log, pool=ss_pools.keys(), allow_missing=True
+            rules.qc_cross_contamination.log.stderr,
+            pool=ss_pools.keys(),
+            allow_missing=True,
         ),
+        # Upload to SMDB
         rules.smdb_upload.log if os.environ.get("DB_PASSWORD") and caeg_data else [],
-    output:
-        touch(out_dir / "{run_id}/{run_id}.log"),
+    log:
+        "<out_dir>/{run_id}/{run_id}.log",
+    params:
+        header=header,
     shell:
-        "head -n 1000000 {input} > {output}"
+        "echo {params.header:q} | cat - {input} > {log}"
 
 
 rule demux:
     input:
-        ### Logs
-        #expand(
-        #    out_dir / "{run_id}/Logs/{log}.log",
-        #    log=["Info", "Warnings", "Errors"],
-        #),
+        ### Demux Logs
+        expand(
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Info", "Warnings", "Errors"],
+            allow_missing=True,
+        ),
         ### Reports
         expand(
-            out_dir / "{run_id}/Reports/{report}",
+            "<out_dir>/{run_id}/Reports/{report}",
             run_id=run_id,
             report=[
                 "RunCompletionStatus.xml",
@@ -247,7 +268,7 @@ rule demux:
             expand(rules.reports_fastqc.output, **sample, allow_missing=True)
             for sample in ss_samples.assign(
                 type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
-            )[ss_samples["Sample_Project"].ne("Undetermined")]
+            )
             .explode("type")
             .to_dict("records")
         ]
@@ -255,13 +276,14 @@ rule demux:
         else [],
         ### FASTQ
         [
-            expand(rules.fastq_sample.output, **sample, allow_missing=True)
+            expand(fastq_sample, **sample, allow_missing=True)
             for sample in ss_samples.to_dict("records")
         ],
+        expand(fastq_undetermined, Lane=ss_lanes, read=ss_reads, allow_missing=True),
         # QC
-        rules.qc.output,
+        rules.qc.log,
     output:
-        touch(out_dir / "{run_id}/seqcenter.done"),
+        touch("<out_dir>/{run_id}/seqcenter.done"),
     message:
         "Demultiplexing done!"
 

@@ -69,6 +69,9 @@ if [ -z "${DB_PASSWORD:-}" ]; then
 fi
 
 
+echo "$(date) [WARNING] This script is deprecated and no longer supported. Please use the wrapper_snakemake.sh instead!"
+
+
 RUN=`basename $IN_FOLDER`
 # Add 20 year prefix, if not present
 if [[ ${RUN:0:2} != "20" ]]; then
@@ -212,7 +215,7 @@ mkdir -p $OUT_FOLDER
     for POOL in ${POOLS[*]}
     do
 	echo "$(date) [$RUN][$POOL] Check cross-contamination"
-	python3 $BASEDIR/scripts/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/resources/eDNA_index_list_UDP097-UDP288_UDI001-UDI096_250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
+	python3 $BASEDIR/workflow/scripts/cross_contamination/cross_contamination.py --index-counts $OUT_FOLDER/Reports/Index_Hopping_Counts.csv --index-known $BASEDIR/resources/eDNA_index_list_20250807.txt --lanes ${POOL#*:} --rpm-warn 100 --out-prefix $OUT_FOLDER/Reports/Index_Hopping_Counts/${POOL%:*}
     done
 
     ### Adapters with >5e6 undetermined reads
@@ -224,7 +227,7 @@ mkdir -p $OUT_FOLDER
     if [ $CAEG_DATA = true ]; then
 	: "${DB_PASSWORD:?DB_PASSWORD is not set}"
 	echo "$(date) [$RUN] Uploading metadata to SMDB"
-	python3 $BASEDIR/scripts/smdb-upload/smdb_upload.py \
+	python3 $BASEDIR/workflow/scripts/smdb-upload/smdb_upload.py \
 		--path_to_demultiplex_stats $OUT_FOLDER/Reports/Demultiplex_Stats.csv \
 		--path_to_run_info $OUT_FOLDER/Reports/RunInfo.xml \
 		--path_to_sample_sheet $SS \

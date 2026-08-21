@@ -7,7 +7,7 @@ rule smdb_upload:
     log:
         "logs/smdb_upload.log",
     conda:
-        "scripts/smdb-upload/environment.yaml"
+        Path(workflow.basedir) / "scripts/smdb-upload/environment.yaml"
     params:
         db_password=os.environ.get("DB_PASSWORD"),
         mail="julie.bitz-thorsen@sund.ku.dk",
