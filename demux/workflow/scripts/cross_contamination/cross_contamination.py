@@ -3,7 +3,7 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-08-12
+Date: 2026-08-24
 Version: 1.0.11"""
 
 import sys
@@ -147,7 +147,7 @@ if args.lanes:
     args.lanes = list(map(int, args.lanes.split(",")))
     idx_cnt = idx_cnt[idx_cnt["lane"].isin(args.lanes)]
     if idx_cnt.shape[0] == 0:
-        log.warning("Index count matrix does not contain lanes {args.lanes}.")
+        log.warning(f"Index count matrix does not contain lanes {args.lanes}.")
         exit(0)
 
 # Sum read counts accross lanes
@@ -157,6 +157,7 @@ idx_cnt = (
     .sum()
     .reset_index()
 )
+total_seqs = sum(idx_cnt["seqs"])
 log.debug(f"\n{idx_cnt}")
 
 idx_len_max = idx_cnt["p7seq"].str.len().max()
@@ -166,20 +167,22 @@ assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
 #########################
 ### Master Index file ###
 #########################
-idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
-idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
+# By default, use input indexes
+idx_names = idx_cnt[["RG", "p7seq", "p5seq"]].dropna()
+idx_names.columns = ["id", "p7seq", "p5seq"]
 
+# Use known indexes if provided
 if args.index_known:
     log.info(f"Reading indexes from {args.index_known}")
     idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(
-        subset=["P7_INDEX_Seq", "P5_INDEX_Seq"], keep="last"
+        subset=["p7seq", "p5seq"], keep="last"
     )
     assert (
         idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()
     ).all(), "P7 and P5 adapters have different lenghts!"
     # Revcomp P5 index
     if args.p5_revcomp:
-        idx_names["P5_INDEX_Seq"] = idx_names["P5_INDEX_Seq"].map(
+        idx_names["p5seq"] = idx_names["p5seq"].map(
             lambda x: (
                 x.replace("A", "t")
                 .replace("C", "g")
@@ -190,14 +193,11 @@ if args.index_known:
         )
 
 # Add index suffix
-idx_names["idx_len_diff"] = idx_len_max - idx_names["P7_INDEX_Seq"].str.len()
-idx_names["idx_len_diff"] = idx_names["idx_len_diff"].clip(0)
-
-idx_names["P7_INDEX_Seq"] = idx_names.apply(
-    lambda row: row.P7_INDEX_Seq + args.adapter_seqs[0][: row.idx_len_diff], axis=1
+idx_names["p7seq"] = idx_names.apply(
+    lambda row: (row.p7seq + args.adapter_seqs[0])[:idx_len_max], axis=1
 )
-idx_names["P5_INDEX_Seq"] = idx_names.apply(
-    lambda row: row.P5_INDEX_Seq + args.adapter_seqs[1][: row.idx_len_diff], axis=1
+idx_names["p5seq"] = idx_names.apply(
+    lambda row: (row.p5seq + args.adapter_seqs[1])[:idx_len_max], axis=1
 )
 log.debug(f"\n{idx_names}")
 
@@ -206,18 +206,24 @@ log.debug(f"\n{idx_names}")
 ### Assign Index IDs ###
 ########################
 log.info("Assign index IDs")
-total_seqs = sum(idx_cnt["seqs"])
-idx_cnt["p7id"] = idx_cnt["p7seq"].map(
-    idx_names.set_index("P7_INDEX_Seq")["P7_INDEX_ID"].to_dict()
+idx_cnt = idx_cnt.set_index(["p7seq", "p5seq"]).join(
+    idx_names.set_index(["p7seq", "p5seq"]), how="left", validate="m:1"
 )
-idx_cnt["p5id"] = idx_cnt["p5seq"].map(
-    idx_names.set_index("P5_INDEX_Seq")["P5_INDEX_ID"].to_dict()
+idx_cnt["p7id"] = idx_cnt["p5id"] = idx_cnt["id"]
+
+idx_cnt["p7id"] = idx_cnt["p7id"].fillna(
+    idx_cnt.groupby(level="p7seq")["p7id"].transform("first")
+)
+idx_cnt["p5id"] = idx_cnt["p5id"].fillna(
+    idx_cnt.groupby(level="p5seq")["p5id"].transform("first")
 )
 idx_cnt.loc[idx_cnt.p7id != idx_cnt.p5id, "RG"] = "unexpected"
 idx_cnt.loc[idx_cnt.p7id.isna() | idx_cnt.p5id.isna(), "RG"] = "unknown"
 
 ### Order columns
-idx_cnt = idx_cnt[["seqs", "p7seq", "p7id", "p5seq", "p5id", "RG"]]
+idx_cnt = idx_cnt.reset_index().drop(columns=["id"])[
+    ["seqs", "p7seq", "p7id", "p5seq", "p5id", "RG"]
+]
 
 ### Save to file
 log.info(f"Saving counts table to {args.out_prefix}.counts.tsv")
@@ -234,7 +240,7 @@ idx_cnt["status"] = idx_cnt["RG"]
 un = idx_cnt["RG"].isin(["unknown", "unexpected"])
 idx_cnt.loc[~un, "status"] = "known"
 idx_cnt.loc[un, "RG"] = idx_cnt.loc[un, "p7id"] + "/" + idx_cnt.loc[un, "p5id"]
-idx_cnt = idx_cnt.set_index(["p7id", "p5id"]).sort_values(["RG"])
+idx_cnt = idx_cnt.set_index(["p7id", "p5id"])
 
 
 #############################
@@ -320,7 +326,7 @@ if not warn_rpm.empty:
 ### Plots ###
 #############
 if args.out_prefix:
-    df = idx_cnt.query('status == "known"').reset_index()
+    df = idx_cnt.query('status == "known"').sort_index().reset_index()
     samples = df["p7id"]
     n_samples = len(samples)
 

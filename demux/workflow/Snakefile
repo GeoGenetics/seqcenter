@@ -226,7 +226,7 @@ rule qc:
             allow_missing=True,
         ),
         # Upload to SMDB
-        rules.smdb_upload.log if os.environ.get("DB_PASSWORD") and caeg_data else [],
+        rules.smdb_upload.output.log if os.environ.get("DB_PASSWORD") and caeg_data else [],
     log:
         "<out_dir>/{run_id}/{run_id}.log",
     params:
@@ -280,6 +280,14 @@ rule demux:
             for sample in ss_samples.to_dict("records")
         ],
         expand(fastq_undetermined, Lane=ss_lanes, read=ss_reads, allow_missing=True),
+        # Sample FASTQ MD5
+        expand(rules.qc_fastq_md5sum_cat.output.md5sum, Sample_Project=ss_proj, allow_missing=True),
+        # Pool Cross-contamination
+        expand(
+            rules.qc_cross_contamination.output,
+            pool=ss_pools.keys(),
+            allow_missing=True,
+        ),
         # QC
         rules.qc.log,
     output:

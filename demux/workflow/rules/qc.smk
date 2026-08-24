@@ -70,8 +70,10 @@ rule qc_fastq_md5sum_cat:
             allow_missing=True,
         ),
     output:
-        "<out_dir>/{run_id}/{Sample_Project}/{run_id}.md5",
+        md5sum="<out_dir>/{run_id}/{Sample_Project}/{run_id}.md5",
     log:
         "logs/{run_id}/qc/fastq/md5sum/{Sample_Project}.log",
+    message:
+        "Concatenating MD5SUM files."
     shell:
-        r"cat {input} | sed 's:\S*/::g' | tee {output} | cut --delimiter ' ' --fields 1 | sort | uniq -d | sed '1i # Duplicated MD5 checksums' > {log}"
+        r"cat {input} | sed 's:\S*/::g' | tee {output.md5sum} | cut --delimiter ' ' --fields 1 | sort | uniq -d | sed '1i # Duplicated MD5 checksums' > {log}"

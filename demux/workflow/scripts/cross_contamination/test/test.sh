@@ -16,4 +16,4 @@ python3 ../cross_contamination.py --loglevel ERROR --index-counts $TYPE.Index_Ho
 
 # Check output
 md5sum -c test.md5
-rm /tmp/cc_test*
+rm /tmp/cc_*
