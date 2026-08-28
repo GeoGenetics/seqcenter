@@ -3,9 +3,10 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-07-27
-Version: 1.0.10"""
+Date: 2026-08-24
+Version: 1.0.11"""
 
+import sys
 import argparse
 import logging
 import numpy as np
@@ -15,7 +16,7 @@ from collections import defaultdict
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(
-    description="Parse 'Reports/Index_Hopping_Counts.csv' file from NovaSeq6000 sequencing runs, and estimate cross-contamination rates (Zavala et. al 2022; doi: 10.1111/1755-0998.13607).",
+    description="Parse 'Reports/Index_Hopping_Counts.csv' file from Illumina sequencing runs, and estimate cross-contamination rates (Zavala et. al 2022; doi: 10.1111/1755-0998.13607).",
     allow_abbrev=False,
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
@@ -93,19 +94,32 @@ args = parser.parse_args()
 
 
 ### Set logger
-loglevel = getattr(logging, args.loglevel.upper(), None)
-logging.basicConfig(
-    level=loglevel,
-    format="%(asctime)s:%(levelname)s:%(name)s:%(message)s",
+log = logging.getLogger()
+log.setLevel(getattr(logging, args.loglevel.upper(), None))
+log_fmt = logging.Formatter(
+    "%(asctime)s:%(levelname)s:%(name)s:%(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logging.info(header)
+
+# STDOUT
+h1 = logging.StreamHandler(sys.stdout)
+h1.setLevel(logging.DEBUG)
+h1.addFilter(lambda record: record.levelno <= logging.INFO)
+h1.setFormatter(log_fmt)
+log.addHandler(h1)
+# STDERR
+h2 = logging.StreamHandler(sys.stderr)
+h2.setLevel(logging.WARNING)
+h2.setFormatter(log_fmt)
+log.addHandler(h2)
+
+log.info(header)
 
 
 #################################
 ### Index Hopping Counts file ###
 #################################
-logging.info(f"Reading Index Hopping Counts file {args.index_counts}")
+log.info(f"Reading Index Hopping Counts file {args.index_counts}")
 idx_cnt = (
     pd.read_csv(args.index_counts, low_memory=False)
     .drop(
@@ -124,17 +138,17 @@ idx_cnt = (
     )
 )
 if idx_cnt.shape[0] == 0:
-    logging.error(f"Index Hopping Counts file {args.index_counts} is empty!")
+    log.error(f"Index Hopping Counts file {args.index_counts} is empty!")
     exit(1)
 
 # Select lanes
 if args.lanes:
-    logging.info(f"Subsetting lane(s) {args.lanes}")
+    log.info(f"Subsetting lane(s) {args.lanes}")
     args.lanes = list(map(int, args.lanes.split(",")))
     idx_cnt = idx_cnt[idx_cnt["lane"].isin(args.lanes)]
     if idx_cnt.shape[0] == 0:
-        logging.warning("Index count matrix does not contain lanes {args.lanes}.")
-        exit(0)
+        log.error(f"Index count matrix does not contain lanes {args.lanes}.")
+        exit(2)
 
 # Sum read counts accross lanes
 idx_cnt = (
@@ -143,7 +157,8 @@ idx_cnt = (
     .sum()
     .reset_index()
 )
-logging.debug(f"\n{idx_cnt}")
+total_seqs = sum(idx_cnt["seqs"])
+log.debug(f"\n{idx_cnt}")
 
 idx_len_max = idx_cnt["p7seq"].str.len().max()
 assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
@@ -152,18 +167,22 @@ assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
 #########################
 ### Master Index file ###
 #########################
-idx_names = idx_cnt[["RG", "p7seq", "RG", "p5seq"]].dropna()
-idx_names.columns = ["P7_INDEX_ID", "P7_INDEX_Seq", "P5_INDEX_ID", "P5_INDEX_Seq"]
+# By default, use input indexes
+idx_names = idx_cnt[["RG", "p7seq", "p5seq"]].dropna()
+idx_names.columns = ["id", "p7seq", "p5seq"]
 
+# Use known indexes if provided
 if args.index_known:
-    logging.info(f"Reading indexes from {args.index_known}")
-    idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(subset=["P7_INDEX_Seq", "P5_INDEX_Seq"], keep="last")
+    log.info(f"Reading indexes from {args.index_known}")
+    idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(
+        subset=["p7seq", "p5seq"], keep="last"
+    )
     assert (
         idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()
     ).all(), "P7 and P5 adapters have different lenghts!"
     # Revcomp P5 index
     if args.p5_revcomp:
-        idx_names["P5_INDEX_Seq"] = idx_names["P5_INDEX_Seq"].map(
+        idx_names["p5seq"] = idx_names["p5seq"].map(
             lambda x: (
                 x.replace("A", "t")
                 .replace("C", "g")
@@ -174,41 +193,44 @@ if args.index_known:
         )
 
 # Add index suffix
-idx_names["idx_len_diff"] = idx_len_max - idx_names["P7_INDEX_Seq"].str.len()
-idx_names["idx_len_diff"] = idx_names["idx_len_diff"].clip(0)
-
-idx_names["P7_INDEX_Seq"] = idx_names.apply(
-    lambda row: row.P7_INDEX_Seq + args.adapter_seqs[0][: row.idx_len_diff], axis=1
+idx_names["p7seq"] = idx_names.apply(
+    lambda row: (row.p7seq + args.adapter_seqs[0])[:idx_len_max], axis=1
 )
-idx_names["P5_INDEX_Seq"] = idx_names.apply(
-    lambda row: row.P5_INDEX_Seq + args.adapter_seqs[1][: row.idx_len_diff], axis=1
+idx_names["p5seq"] = idx_names.apply(
+    lambda row: (row.p5seq + args.adapter_seqs[1])[:idx_len_max], axis=1
 )
-logging.debug(f"\n{idx_names}")
+log.debug(f"\n{idx_names}")
 
 
 ########################
 ### Assign Index IDs ###
 ########################
-logging.info("Assign index IDs")
-total_seqs = sum(idx_cnt["seqs"])
-idx_cnt["p7id"] = idx_cnt["p7seq"].map(
-    idx_names.set_index("P7_INDEX_Seq")["P7_INDEX_ID"].to_dict()
+log.info("Assign index IDs")
+idx_cnt = idx_cnt.set_index(["p7seq", "p5seq"]).join(
+    idx_names.set_index(["p7seq", "p5seq"]), how="left", validate="m:1"
 )
-idx_cnt["p5id"] = idx_cnt["p5seq"].map(
-    idx_names.set_index("P5_INDEX_Seq")["P5_INDEX_ID"].to_dict()
+idx_cnt["p7id"] = idx_cnt["p5id"] = idx_cnt["id"]
+
+idx_cnt["p7id"] = idx_cnt["p7id"].fillna(
+    idx_cnt.groupby(level="p7seq")["p7id"].transform("first")
+)
+idx_cnt["p5id"] = idx_cnt["p5id"].fillna(
+    idx_cnt.groupby(level="p5seq")["p5id"].transform("first")
 )
 idx_cnt.loc[idx_cnt.p7id != idx_cnt.p5id, "RG"] = "unexpected"
 idx_cnt.loc[idx_cnt.p7id.isna() | idx_cnt.p5id.isna(), "RG"] = "unknown"
 
-### Order/sort columns
-idx_cnt = idx_cnt[["seqs", "p7seq", "p7id", "p5seq", "p5id", "RG"]].sort_values(
-    ["seqs"], ascending=False
-)
+### Order columns
+idx_cnt = idx_cnt.reset_index().drop(columns=["id"])[
+    ["seqs", "p7seq", "p7id", "p5seq", "p5id", "RG"]
+]
 
 ### Save to file
-logging.info(f"Saving counts table to {args.out_prefix}.counts.tsv")
+log.info(f"Saving counts table to {args.out_prefix}.counts.tsv")
 Path(args.out_prefix).parent.mkdir(parents=True, exist_ok=True)
-idx_cnt.to_csv(f"{args.out_prefix}.counts.tsv", sep="\t", na_rep=".", index=False)
+idx_cnt.sort_values(by=["p7id", "p5id"]).to_csv(
+    f"{args.out_prefix}.counts.tsv", sep="\t", na_rep=".", index=False
+)
 
 ### Pivot table ###
 idx_pivot = idx_cnt.pivot(index="p7id", columns="p5id", values="seqs")
@@ -218,13 +240,13 @@ idx_cnt["status"] = idx_cnt["RG"]
 un = idx_cnt["RG"].isin(["unknown", "unexpected"])
 idx_cnt.loc[~un, "status"] = "known"
 idx_cnt.loc[un, "RG"] = idx_cnt.loc[un, "p7id"] + "/" + idx_cnt.loc[un, "p5id"]
-idx_cnt = idx_cnt.set_index(["p7id", "p5id"]).sort_values(["RG"])
+idx_cnt = idx_cnt.set_index(["p7id", "p5id"])
 
 
 #############################
 ### Compute Contamination ###
 #############################
-logging.info("Estimate contamination")
+log.info("Estimate contamination")
 cross_contam = {"orig": [], "dest": [], "reads_contam": [], "reads_total": []}
 
 for row in idx_cnt.query('status == "known"').itertuples():
@@ -265,7 +287,7 @@ cross_contam["reads_pct"] = (
 
 # DEBUG
 for event in cross_contam.itertuples():
-    logging.debug(
+    log.debug(
         f"{event.orig} into {event.dest}\t{event.reads_contam:.2f} reads out of {event.reads_total} ({event.reads_pct:.5f}%)"
     )
 
@@ -287,7 +309,7 @@ idx_cnt["cross_cont_readsum"] = idx_cnt[["seqs", "cross_cont_readsum"]].min(axis
 # Calculate contam reads per Million
 idx_cnt["cross_cont_perM"] = idx_cnt["cross_cont_readsum"] / idx_cnt["seqs"] * 1000000
 ### Save to file
-logging.info(f"Saving RG summary to {args.out_prefix}.cross_contam.tsv")
+log.info(f"Saving RG summary to {args.out_prefix}.cross_contam.tsv")
 idx_cnt.query('status == "known"').round(1).reset_index().to_csv(
     f"{args.out_prefix}.cross_contam.tsv",
     sep="\t",
@@ -297,7 +319,7 @@ idx_cnt.query('status == "known"').round(1).reset_index().to_csv(
 ### Warn on high levels of contamination
 warn_rpm = idx_cnt.query(f'status == "known" & cross_cont_perM > {args.rpm_warn}')
 if not warn_rpm.empty:
-    logging.warning(f"\n{warn_rpm}")
+    log.warning(f"\n{warn_rpm}")
 
 
 #############
@@ -310,7 +332,7 @@ if args.out_prefix:
 
     if args.plot_format == "html":
         ### Heatmap
-        logging.info(f"Plotting heatmap to {args.out_prefix}.counts.html")
+        log.info(f"Plotting heatmap to {args.out_prefix}.counts.html")
         import plotly
         import plotly.express as px
 
@@ -338,9 +360,7 @@ if args.out_prefix:
         )
 
         ### Barplot
-        logging.info(
-            f"Plotting cross contamination to {args.out_prefix}.cross_contam.html"
-        )
+        log.info(f"Plotting cross contamination to {args.out_prefix}.cross_contam.html")
         from plotly.subplots import make_subplots
         import plotly.graph_objects as go
 
@@ -397,7 +417,7 @@ if args.out_prefix:
         import matplotlib.pyplot as plt
 
         ### Heatmap
-        logging.info(f"Plotting heatmap to {args.out_prefix}.counts.pdf")
+        log.info(f"Plotting heatmap to {args.out_prefix}.counts.pdf")
         fig, ax = plt.subplots(figsize=(n_samples / 1.5, n_samples / 1.5))
         im = ax.imshow(idx_pivot)
 
@@ -429,9 +449,7 @@ if args.out_prefix:
         plt.savefig(f"{args.out_prefix}.counts.pdf")
 
         ### Barplot
-        logging.info(
-            f"Plotting cross contamination to {args.out_prefix}.cross_contam.pdf"
-        )
+        log.info(f"Plotting cross contamination to {args.out_prefix}.cross_contam.pdf")
         import numpy as np
 
         x = np.arange(n_samples)  # the label locations

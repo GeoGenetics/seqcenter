@@ -1,0 +1,29 @@
+cores: 5
+local-cores: 5
+keep-going: yes
+show-failed-logs: yes
+rerun-incomplete: yes
+printshellcmds: yes
+latency-wait: 60
+benchmark-extended: yes
+max-jobs-per-timespan: 100/10s
+max-status-checks-per-second: 1
+strict-dag-evaluation:
+  - cyclic-graph
+  - functions
+  - periodic-wildcards
+notemp: yes
+
+configfile: "/projects/ggsc/apps/seqcenter/demux/resources/config.yaml"
+
+# CONDA
+wrapper-prefix: "git+file://projects/ggsc/apps/snakemake-wrappers"
+software-deployment-method:
+  - conda
+  - env-modules
+conda-cleanup-pkgs: "cache"
+conda-prefix: "/projects/ggsc/apps/cache/conda"
+
+# RESOURCES
+resources:
+  mem: 20 GiB
