@@ -10,7 +10,7 @@ rule logs_errors:
     threads: 1
     params:
         path=f"{in_analysis}/logs/BCLConvert",
-        files=lambda w: "{MSLB2F,P2FSWT2}-stderr_*.txt",
+        files=lambda w: "P2FSW*-stderr_*.txt",
     shell:
         "cat {params.path}/{params.files} | grep -iv warning | sort -u > {output}"
 
@@ -23,8 +23,8 @@ rule logs_warnings:
     priority: 10
     threads: 1
     params:
-        path=f"{in_analysis}/logs/BCLConvert/",
-        files=lambda w: "{MSLB2F,P2FSWT2}-stderr_*.txt",
+        path=f"{in_analysis}/logs/BCLConvert",
+        files=lambda w: "P2FSW*-stderr_*.txt",
     shell:
         "cat {params.path}/{params.files} | grep -i warning | sort -u > {output}"
 

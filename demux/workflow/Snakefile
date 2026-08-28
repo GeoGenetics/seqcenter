@@ -79,9 +79,11 @@ if not config["idx_list"].is_absolute():
     config["idx_list"] = (Path(workflow.basedir) / ".." / config["idx_list"]).resolve()
 # Check if indexes are in SS
 idx_list = pd.read_table(config["idx_list"])
+# Add p5 in reverse complement
+idx_list["p5seq_RC"] = idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
 assert all(
-    ss_samples["Index"].isin(idx_list["P7_INDEX_Seq"])
-    == ss_samples["Index2"].isin(idx_list["P5_INDEX_Seq"])
+    ss_samples["Index"].isin(idx_list["p7seq"])
+    == ss_samples["Index2"].isin(idx_list["p5seq_RC"])
 ), "unknown index pairs in SampleSheet"
 
 

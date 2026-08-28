@@ -6,7 +6,7 @@ export PIXI_CACHE_DIR=/tmp/pixi/cache
 
 module load pixi/0.77.1
 
-BASEDIR=$(dirname "$0")
+BASEDIR=$(dirname `realpath $0`)
 IN_BCL=`realpath --canonicalize-existing --no-symlinks $1`; shift
 SS=`realpath --canonicalize-existing --no-symlinks $1`; shift
 OUT_DIR=`realpath --canonicalize-existing --no-symlinks $1`; shift

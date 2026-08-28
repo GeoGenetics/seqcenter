@@ -9,4 +9,4 @@ analysis_n: 0
 # If folder exists, resume
 resume: no
 # Index list (path has to be absolute or relative to workflow basedir)
-idx_list: "resources/IndexInformation_20260819JBT_RC.tsv"
+idx_list: "resources/IndexInformation_20260819JBT_F.tsv"
