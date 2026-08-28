@@ -38,7 +38,7 @@ rule logs_info:
     threads: 1
     params:
         path=f"{in_analysis}/logs/BCLConvert/",
-        files=lambda w: "{MSLB2F,P2FSWT2}-stdout_*.txt",
+        files=lambda w: "P2FSW*-stdout_*.txt",
     shell:
         "cat {params.path}/{params.files} > {output}"
 
