@@ -37,7 +37,7 @@ rule logs_info:
     priority: 10
     threads: 1
     params:
-        path=f"{in_analysis}/logs/BCLConvert/",
+        path=f"{in_analysis}/logs/BCLConvert",
         files=lambda w: "P2FSW*-stdout_*.txt",
     shell:
         "cat {params.path}/{params.files} > {output}"
