@@ -147,8 +147,8 @@ if args.lanes:
     args.lanes = list(map(int, args.lanes.split(",")))
     idx_cnt = idx_cnt[idx_cnt["lane"].isin(args.lanes)]
     if idx_cnt.shape[0] == 0:
-        log.warning(f"Index count matrix does not contain lanes {args.lanes}.")
-        exit(0)
+        log.error(f"Index count matrix does not contain lanes {args.lanes}.")
+        exit(2)
 
 # Sum read counts accross lanes
 idx_cnt = (

@@ -1,6 +1,7 @@
 cores: 5
 local-cores: 5
 keep-going: yes
+show-failed-logs: yes
 rerun-incomplete: yes
 printshellcmds: yes
 latency-wait: 60
