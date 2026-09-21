@@ -1,3 +1,4 @@
+
 import os
 import re
 from datetime import datetime, timedelta
@@ -12,7 +13,7 @@ start_time = datetime.now()
 header = """
 # Name: SnakeDemux
 # Description: Snakemake workflow to demultiplex Illumina runs.
-# Version: 0.1.0 (2026-08-14)
+# Version: 0.1.0 (2026-09-21)
 # Author: Filipe G. Vieira
 # Mail: fgvieira@sund.ku.dk
 """
@@ -35,13 +36,7 @@ ss_reads = range(
     )
     + 1,
 )
-# Pools
-ss_pools = defaultdict(list)
-[
-    ss_pools[val].append(tag.removeprefix("PoolLane"))
-    for tag, val in ss.header.items()
-    if tag.startswith("PoolLane")
-]
+ss_reads = list(map(str, ss_reads))
 # Samples
 ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
 assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
@@ -50,12 +45,13 @@ ss_proj = ss_samples["Sample_Project"].unique().tolist()
 # Assign lanes
 if "Lane" not in ss_samples.columns:
     ss_lanes = [
-        int(tag.removeprefix("PoolLane"))
+        tag.removeprefix("PoolLane")
         for tag, val in ss.header.items()
         if tag.startswith("PoolLane")
     ]
+    assert len(ss_lanes) > 0, "no valid lanes found"
     ss_samples = ss_samples.assign(Lane=[ss_lanes] * len(ss_samples)).explode("Lane")
-ss_lanes = ss_samples["Lane"].unique().tolist()
+ss_lanes = ss_samples["Lane"].astype(str).unique().tolist()
 # Assign sample numbers
 ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
 assert (
@@ -66,9 +62,14 @@ assert (
     .all()
 ), "Sample_ID have different Sample_N. Check your Samplesheet."
 # Assign R1/R2
-ss_samples = (
-    ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read").astype("str")
-)
+ss_samples = ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read")
+# Pools
+ss_pools = defaultdict(list)
+[
+    ss_pools[val].append(tag.removeprefix("PoolLane"))
+    for tag, val in ss.header.items()
+    if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in ss_lanes
+]
 
 
 ##################
@@ -80,7 +81,9 @@ if not config["idx_list"].is_absolute():
 # Check if indexes are in SS
 idx_list = pd.read_table(config["idx_list"])
 # Add p5 in reverse complement
-idx_list["p5seq_RC"] = idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
+idx_list["p5seq_RC"] = (
+    idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
+)
 assert all(
     ss_samples["Index"].isin(idx_list["p7seq"])
     == ss_samples["Index2"].isin(idx_list["p5seq_RC"])
@@ -194,8 +197,8 @@ wildcard_constraints:
     Sample_Project="|".join(ss_proj),
     pool="|".join(ss_pools.keys()),
     sample_n=r"\d+",
-    Lane="|".join(map(str, ss_lanes)),
-    read="|".join(map(str, ss_reads)),
+    Lane="|".join(ss_lanes),
+    read="|".join(ss_reads),
 
 
 # Import rules
@@ -207,34 +210,56 @@ include: "rules/smdb.smk"
 # Rules
 rule qc:
     input:
-        rules.bcl_convert.log if demux else [],
+        bcl=rules.bcl_convert.log if demux else [],
         # Logs
-        expand(
+        demux=expand(
             "<out_dir>/{run_id}/Logs/{log}.log",
             log=["Warnings", "Errors"],
             allow_missing=True,
         ),
         # Number of reads
-        rules.qc_fastq_nreads.output,
-        rules.qc_undetermined_nreads.output,
+        nreads_fastq=rules.qc_fastq_nreads.output,
+        nreads_undeter=rules.qc_undetermined_nreads.output,
         # Sample FASTQ MD5
-        expand(
+        md5=expand(
             rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj, allow_missing=True
         ),
         # Pool Cross-contamination
-        expand(
+        cc=expand(
             rules.qc_cross_contamination.log.stderr,
             pool=ss_pools.keys(),
             allow_missing=True,
         ),
         # Upload to SMDB
-        rules.smdb_upload.output.log if os.environ.get("DB_PASSWORD") and caeg_data else [],
-    log:
-        "<out_dir>/{run_id}/{run_id}.log",
+        smdb=(
+            rules.smdb_upload.output.log
+            if os.environ.get("DB_PASSWORD") and caeg_data
+            else []
+        ),
+    output:
+        log="<out_dir>/{run_id}/{run_id}.log",
     params:
         header=header,
     shell:
-        "echo {params.header:q} | cat - {input} > {log}"
+        """
+        (
+            echo {params.header:q}
+            echo "# Demultiplexing"
+            cat {input.demux}
+            echo "# FASTQ files with few reads"
+            cat {input.nreads_fastq}
+            echo "# Top Undetermined Adaptors"
+            cat {input.nreads_undeter}
+            echo "# MD5 checksum"
+            cat {input.md5}
+            echo "# Cross-contamination"
+            cat {input.cc}
+            if [ -e "{input.smdb}" ]; then
+                echo "# SMDB log"
+                cat {input.smdb}
+            fi
+        ) >{output.log}
+        """
 
 
 rule demux:
@@ -283,7 +308,11 @@ rule demux:
         ],
         expand(fastq_undetermined, Lane=ss_lanes, read=ss_reads, allow_missing=True),
         # Sample FASTQ MD5
-        expand(rules.qc_fastq_md5sum_cat.output.md5sum, Sample_Project=ss_proj, allow_missing=True),
+        expand(
+            rules.qc_fastq_md5sum_cat.output.md5sum,
+            Sample_Project=ss_proj,
+            allow_missing=True,
+        ),
         # Pool Cross-contamination
         expand(
             rules.qc_cross_contamination.output,
@@ -291,7 +320,7 @@ rule demux:
             allow_missing=True,
         ),
         # QC
-        rules.qc.log,
+        rules.qc.output,
     output:
         touch("<out_dir>/{run_id}/seqcenter.done"),
     message:

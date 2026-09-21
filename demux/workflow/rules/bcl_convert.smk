@@ -49,11 +49,11 @@ rule bcl_convert:
         "logs/{run_id}/bcl_convert.log",
     envmodules:
         "bcl-convert/4.4.6",
-    threads: 4
+    threads: 10
     resources:
         mem="12 GiB",
     params:
         outdir=lambda w, output: Path(output.fq_undetermined[0]).parent,
-        extra="--bcl-num-parallel-tiles 1 --bcl-sampleproject-subdirectories true --force",
+        extra="--bcl-sampleproject-subdirectories true --fastq-gzip-compression-level 5 --force",
     shell:
-        "bcl-convert --bcl-num-conversion-threads {threads} --bcl-num-compression-threads 2 --bcl-num-decompression-threads 1 --bcl-input-directory {input.bcl} --sample-sheet {input.sample_sheet} {params.extra} --output-directory {params.outdir} > {log} 2>&1"
+        "bcl-convert --bcl-num-conversion-threads {threads} --bcl-num-compression-threads {threads} --bcl-input-directory {input.bcl} --sample-sheet {input.sample_sheet} {params.extra} --output-directory {params.outdir} > {log} 2>&1"

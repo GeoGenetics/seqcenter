@@ -19,4 +19,4 @@ mkdir -p $WORKDIR
 pixi run --as-is --manifest-path $BASEDIR conda config --set channel_priority strict
 
 # Run workflow
-env --chdir=$WORKDIR pixi run --as-is --manifest-path $BASEDIR snakemake --snakefile $BASEDIR/workflow/Snakefile --workflow-profile /projects/ggsc/apps/seqcenter/demux/resources/profile.yaml --config bcl=$IN_BCL sample_sheet=$SS out_dir=$OUT_DIR $@
+env --chdir=$WORKDIR pixi run --as-is --manifest-path $BASEDIR snakemake --snakefile $BASEDIR/workflow/Snakefile --workflow-profile $BASEDIR/resources/profile.yaml --config bcl=$IN_BCL sample_sheet=$SS out_dir=$OUT_DIR $@

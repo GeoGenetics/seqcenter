@@ -1,5 +1,5 @@
-cores: 5
-local-cores: 5
+cores: 8
+local-cores: 8
 keep-going: yes
 show-failed-logs: yes
 rerun-incomplete: yes
@@ -26,4 +26,4 @@ conda-prefix: "/projects/ggsc/apps/cache/conda"
 
 # RESOURCES
 resources:
-  mem: 20 GiB
+  mem: 15 GiB
