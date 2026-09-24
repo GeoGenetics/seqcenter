@@ -1,7 +1,7 @@
 rule bcl_convert:
     input:
-        bcl=in_dir,
-        sample_sheet=sample_sheet,
+        bcl=config["bcl"],
+        sample_sheet=config["sample_sheet"],
     output:
         # Not created by current version of BCL-convert
         touch("<out_dir>/{run_id}/Reports/RunParameters.xml"),

@@ -10,7 +10,7 @@ rule logs_errors:
     threads: 1
     params:
         path=f"{in_analysis}/logs/BCLConvert",
-        files=lambda w: "P2FSW*-stderr_*.txt",
+        files=lambda w: "MSLB2F-stderr_*.txt",
     shell:
         "cat {params.path}/{params.files} | grep -iv warning | sort -u > {output}"
 
@@ -24,7 +24,7 @@ rule logs_warnings:
     threads: 1
     params:
         path=f"{in_analysis}/logs/BCLConvert",
-        files=lambda w: "P2FSW*-stderr_*.txt",
+        files=lambda w: "MSLB2F-stderr_*.txt",
     shell:
         "cat {params.path}/{params.files} | grep -i warning | sort -u > {output}"
 
@@ -38,7 +38,7 @@ rule logs_info:
     threads: 1
     params:
         path=f"{in_analysis}/logs/BCLConvert",
-        files=lambda w: "P2FSW*-stdout_*.txt",
+        files=lambda w: "MSLB2F-stdout_*.txt",
     shell:
         "cat {params.path}/{params.files} > {output}"
 
@@ -62,7 +62,7 @@ rule reports_run:
 
 use rule reports_run as reports_ss with:
     input:
-        sample_sheet,
+        config["sample_sheet"],
     wildcard_constraints:
         report="SampleSheet.csv",
 

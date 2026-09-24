@@ -1,9 +1,9 @@
 
 rule smdb_upload:
     input:
-        run_info=out_dir / "Reports" / "RunInfo.xml",
-        demux_stats=out_dir / "Reports" / "Demultiplex_Stats.csv",
-        sample_sheet=sample_sheet,
+        run_info="<out_dir>/{run_id}/Reports/RunInfo.xml",
+        demux_stats="<out_dir>/{run_id}/Reports/Demultiplex_Stats.csv",
+        sample_sheet=config["sample_sheet"],
     output:
         log="logs/smdb_upload.log",
     conda:

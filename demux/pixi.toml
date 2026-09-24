@@ -23,3 +23,6 @@ ipython = ">=9.15.0,<10"
 [feature.format.dependencies]
 black = ">=26.5.1,<27"
 snakefmt = ">=2.0.3,<3"
+
+[pypi-dependencies]
+interop = ">=1.9.0, <2"
