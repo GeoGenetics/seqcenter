@@ -1,0 +1,364 @@
+import os
+import re
+from datetime import datetime, timedelta
+from pathlib import Path
+import pandas as pd
+from collections import defaultdict
+
+snakemake.utils.min_version("9.22.0")
+start_time = datetime.now()
+
+header = """
+# Name: SnakeDemux
+# Description: Snakemake workflow to demultiplex Illumina runs.
+# Version: 0.1.0 (2026-09-24)
+# Author: Filipe G. Vieira
+# Mail: fgvieira@sund.ku.dk
+"""
+
+config["bcl"] = Path(config["bcl"])
+config["sample_sheet"] = Path(config["sample_sheet"])
+config["out_dir"] = Path(config["out_dir"])
+config["idx_list"] = Path(config["idx_list"])
+if not config["idx_list"].is_absolute():
+    config["idx_list"] = (Path(workflow.basedir) / ".." / config["idx_list"]).resolve()
+
+
+######################
+### Parse Run info ###
+######################
+from interop import py_interop_run
+import xml.etree.ElementTree as ET
+
+run_info = py_interop_run.info()
+run_info.read(str(config["bcl"]))
+fc_n_lanes = run_info.flowcell().lane_count()
+# Reads
+ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
+# Flowcell Side
+run_params = ET.parse(config["bcl"] / "RunParameters.xml").getroot()
+fc_side = run_params.find("Side").text
+
+print(f"""Run: {run_info.name()}
+Instrument: {run_info.instrument_name()}
+Run Number: {run_info.run_number()}
+Flowcell: {fc_side}{run_info.flowcell_id()}
+Number of Lanes: {fc_n_lanes}
+Date: {run_info.date()}
+Total Cycles: {run_info.total_cycles()}
+Paired-End: {run_info.is_paired_end()}""")
+
+### Assertions
+ss_id = re.match(
+    r"(?P<date>\d{6})_samplesheet_(?P<flowcell_type>\w+)(?P<flowcell_side>[AB])",
+    config["sample_sheet"].name,
+).groupdict()
+run_id = re.search(
+    r"(?P<date>\d{6})_(?P<instrument>[A-Z]{1,2}\d{5})_(?P<run_n>\d+)_(?P<flowcell_side>[AB])(?P<flowcell_id>\w{9})",
+    config["bcl"].name,
+).groupdict()
+assert (
+    ss_id["date"] == run_id["date"]
+), f"""Date in BCL folder and SampleSheet does not match: {ss_id["date"]} != {run_id["date"]}"""
+assert (
+    ss_id["flowcell_side"] == run_id["flowcell_side"]
+), f"""Flowcell side in BCL folder and SampleSheet does not match: {ss_id["flowcell_side"]} != {run_id["flowcell_side"]}"""
+assert (
+    run_info.name() == config["bcl"].name
+), f"""Run ID in BCL folder and run info does not match: {run_info.name()} != {config["bcl"].name}"""
+assert (
+    run_info.instrument_name() == run_id["instrument"]
+), f"""Instrument in BCL folder and run info does not match: {run_info.instrument_name()} != {run_id["instrument"]}"""
+assert run_info.run_number() == int(
+    run_id["run_n"]
+), f"""Run number in BCL folder and run info does not match: {run_info.run_number()} != {int(run_id["run_n"])}"""
+assert (
+    run_info.flowcell_id() == run_id["flowcell_id"]
+), f"""Flowcell ID in BCL folder and run info does not match: {run_info.flowcell_id()} != {run_id["flowcell_id"]}"""
+assert (
+    fc_side == run_id["flowcell_side"]
+), f"""Flowcel side in BCL folder and run info does not match: {fc_side} != {run_id["flowcell_side"]}"""
+
+
+###################
+### SampleSheet ###
+###################
+from samshee.samplesheetv2 import read_samplesheetv2
+
+ss = read_samplesheetv2(config["sample_sheet"])
+# Samples
+ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
+assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
+# Projects
+ss_proj = ss_samples["Sample_Project"].unique().tolist()
+# Assign lanes
+if "Lane" not in ss_samples.columns:
+    ss_samples = ss_samples.assign(
+        Lane=[range(1, fc_n_lanes + 1)] * len(ss_samples)
+    ).explode("Lane")
+ss_lanes = ss_samples["Lane"].astype(str).unique().tolist()
+# Assign sample numbers
+ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
+assert (
+    ss_samples.drop(columns="Lane")
+    .groupby(["Sample_ID"])
+    .nunique()["sample_n"]
+    .eq(1)
+    .all()
+), "Sample_ID have different Sample_N. Check your Samplesheet."
+# Assign R1/R2
+ss_samples = ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read")
+# Pools
+ss_pools = defaultdict(list)
+[
+    ss_pools[val].append(tag.removeprefix("PoolLane"))
+    for tag, val in ss.header.items()
+    if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in ss_lanes
+]
+# Assertions
+assert run_info.is_paired_end() == (
+    "Read2Cycles" in ss.reads.keys()
+), "Paired-end status in run info and SampleSheet does not match"
+
+
+##################
+### Index List ###
+##################
+# Check if indexes are in SS
+idx_list = pd.read_table(config["idx_list"])
+# Add p5 in reverse complement
+idx_list["p5seq_RC"] = (
+    idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
+)
+assert all(
+    ss_samples["Index"].isin(idx_list["p7seq"])
+    == ss_samples["Index2"].isin(idx_list["p5seq_RC"])
+), "unexpected index pairs in SampleSheet. Is p5 in reverse-complement?"
+
+
+###########
+### BCL ###
+###########
+in_analyses = config["bcl"] / "Analysis"
+if in_analyses.exists():
+    # Choose analysis, by default is the last
+    in_analysis = sorted(in_analyses.glob("[0-9]/Data"))[
+        config.get("analysis_n", 0) - 1
+    ]
+
+    assert config["bcl"] / "CopyComplete.txt", "File CopyComplete.txt is not present!"
+    assert (
+        in_analysis / "Secondary_Analysis_Complete.txt"
+    ), "File Secondary_Analysis_Complete.txt is not present!"
+
+    print(
+        f"""Found analysis data in '{in_analysis}'.\nDo you want to demultiplex this data again? [y/n/q]: """,
+        end="",
+        file=sys.stderr,
+    )
+    demux = config.get("demux")
+    if not demux:
+        from builtins import input as user_input
+
+        demux = user_input()
+
+    match demux:
+        case "y" | "Y" | "yes" | "Yes" | "YES":
+            print("Re-demultiplexing data...", file=sys.stderr)
+            demux = True
+        case "n" | "N" | "no" | "No" | "NO":
+            print("Using existing data...", file=sys.stderr)
+            demux = False
+        case "q" | "Q" | "quit" | "Quit" | "QUIT":
+            print("Quitting...", file=sys.stderr)
+            exit(0)
+        case _:
+            print("Unknown command!", file=sys.stderr)
+            exit(1)
+else:
+    print(
+        f"""Demultiplexing locally (could not find '{config["bcl"] / "Analysis"}' folder).""",
+        file=sys.stderr,
+    )
+    demux = True
+
+
+### Run ID - add 20 year prefix, if not present
+run_id = config["bcl"].name
+if not run_id.startswith("20"):
+    run_id = f"20{run_id}"
+
+
+##############
+### Output ###
+##############
+if config["out_dir"].resolve() == Path("/maps/datasets/caeg_fastq"):
+    config["out_dir"] = config["out_dir"] / run_id[0:4]
+    caeg_data = True
+else:
+    caeg_data = False
+# Check if folder exists
+assert not (config["out_dir"] / run_id).exists() or config.get(
+    "resume", False
+), f'Output folder {config["out_dir"] / run_id} already exists! Please rename/delete folder and retry.'
+
+
+# Paths
+fastq_sample = "<out_dir>/{run_id}/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz"
+fastq_undetermined = "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz"
+
+
+pathvars:
+    in_dir=str(config["bcl"]),
+    in_analysis=str(in_analysis),
+    out_dir=str(config["out_dir"]),
+
+
+# Copy log
+onsuccess:
+    out_dir = config["out_dir"]
+    runtime = datetime.now() - start_time
+    with open(log[0], "a") as f:
+        f.write(f"Total runtime: {runtime}")
+    shell("cp {log} {out_dir}/{run_id}/.")
+
+
+wildcard_constraints:
+    run_id=run_id,
+    Sample_Project="|".join(ss_proj),
+    pool="|".join(ss_pools.keys()),
+    sample_n=r"\d+",
+    Lane="|".join(ss_lanes),
+    read="|".join(ss_reads),
+
+
+# Import rules
+include: "rules/bcl_convert.smk" if demux else "rules/copy.smk"
+include: "rules/qc.smk"
+include: "rules/smdb.smk"
+
+
+# Rules
+rule qc:
+    input:
+        bcl=rules.bcl_convert.log if demux else [],
+        # Logs
+        demux=expand(
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Info", "Warnings", "Errors"],
+            allow_missing=True,
+        ),
+        # Number of reads
+        nreads_fastq=rules.qc_fastq_nreads.output,
+        nreads_undeter=rules.qc_undetermined_nreads.output,
+        # Sample FASTQ MD5
+        md5=expand(
+            rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj, allow_missing=True
+        ),
+        # Pool Cross-contamination
+        cc=expand(
+            rules.qc_cross_contamination.log.stderr,
+            pool=ss_pools.keys(),
+            allow_missing=True,
+        ),
+        # Upload to SMDB
+        smdb=(
+            rules.smdb_upload.output.log
+            if os.environ.get("DB_PASSWORD") and caeg_data
+            else []
+        ),
+    output:
+        log="<out_dir>/{run_id}/{run_id}.log",
+    params:
+        header=header,
+    shell:
+        """
+        (
+            echo {params.header:q}
+            echo "# Demultiplexing"
+            cat {input.demux}
+            echo "# FASTQ files with few reads"
+            cat {input.nreads_fastq}
+            echo "# Top Undetermined Adaptors"
+            cat {input.nreads_undeter}
+            echo "# MD5 checksum"
+            cat {input.md5}
+            echo "# Cross-contamination"
+            cat {input.cc}
+            if [ -e "{input.smdb}" ]; then
+                echo "# SMDB log"
+                cat {input.smdb}
+            fi
+        ) >{output.log}
+        """
+
+
+rule demux:
+    input:
+        ### Demux Logs
+        expand(
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Info", "Warnings", "Errors"],
+            allow_missing=True,
+        ),
+        ### Reports
+        expand(
+            "<out_dir>/{run_id}/Reports/{report}",
+            run_id=run_id,
+            report=[
+                "RunCompletionStatus.xml",
+                "RunInfo.xml",
+                "RunParameters.xml",
+                "SampleSheet.csv",
+                "Demultiplex_Stats.csv",
+                "Demultiplex_Tile_Stats.csv",
+                "Index_Hopping_Counts.csv",
+                "IndexMetricsOut.bin",
+                "Top_Unknown_Barcodes.csv",
+                "Adapter_Cycle_Metrics.csv",
+                "Adapter_Metrics.csv",
+                "Quality_Metrics.csv",
+                "Quality_Tile_Metrics.csv",
+            ],
+        ),
+        ### FASTQC
+        [
+            expand(rules.reports_fastqc.output, **sample, allow_missing=True)
+            for sample in ss_samples.assign(
+                type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
+            )
+            .explode("type")
+            .to_dict("records")
+        ]
+        if not demux
+        else [],
+        ### FASTQ
+        [
+            expand(fastq_sample, **sample, allow_missing=True)
+            for sample in ss_samples.to_dict("records")
+        ],
+        expand(fastq_undetermined, Lane=ss_lanes, read=ss_reads, allow_missing=True),
+        # Sample FASTQ MD5
+        expand(
+            rules.qc_fastq_md5sum_cat.output.md5sum,
+            Sample_Project=ss_proj,
+            allow_missing=True,
+        ),
+        # Pool Cross-contamination
+        expand(
+            rules.qc_cross_contamination.output,
+            pool=ss_pools.keys(),
+            allow_missing=True,
+        ),
+        # QC
+        rules.qc.output,
+    output:
+        touch("<out_dir>/{run_id}/seqcenter.done"),
+    message:
+        "Demultiplexing done!"
+
+
+rule all:
+    default_target: True
+    input:
+        expand(rules.demux.output, run_id=run_id),
