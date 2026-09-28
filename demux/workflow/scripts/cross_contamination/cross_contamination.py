@@ -177,9 +177,9 @@ if args.index_known:
     idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(
         subset=["p7seq", "p5seq"], keep="last"
     )
-    assert (
-        idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()
-    ).all(), "P7 and P5 adapters have different lenghts!"
+    assert (idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()).all(), (
+        "P7 and P5 adapters have different lenghts!"
+    )
     # Revcomp P5 index
     if args.p5_revcomp:
         idx_names["p5seq"] = idx_names["p5seq"].map(

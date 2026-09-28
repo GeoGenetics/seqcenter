@@ -17,7 +17,7 @@ rule bcl_convert:
         ],
         fq_undetermined=expand(
             "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz",
-            Lane=ss_lanes,
+            Lane=config["lanes"],
             read=ss_reads,
             allow_missing=True,
         ),

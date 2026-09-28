@@ -4,7 +4,9 @@ bcl: ~
 sample_sheet: ~
 # Output directory
 out_dir: "."
-# Analysis to use in case of NOT re-demux (0 means latest)
+# Lanes to use (by default, use all)
+lanes: ~
+# Analysis (in Analysis/?/Data) to use in case of NOT re-demux (0 means latest)
 analysis_n: 0
 # If folder exists, resume
 resume: no

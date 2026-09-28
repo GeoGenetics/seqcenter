@@ -114,9 +114,9 @@ def upload_demultiplex_stats(
 
     lanes = dmux_stats["Lane"].unique()
     num_lanes = len(lanes)
-    assert (
-        0 < num_lanes < 9
-    ), f"Expected 1-8 lanes in the demultiplex stats file, but got {num_lanes}"
+    assert 0 < num_lanes < 9, (
+        f"Expected 1-8 lanes in the demultiplex stats file, but got {num_lanes}"
+    )
 
     pool_lanes = {}
 
