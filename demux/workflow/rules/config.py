@@ -61,9 +61,9 @@ if in_analyses.exists():
     ]
 
     assert config["bcl"] / "CopyComplete.txt", "File CopyComplete.txt is not present!"
-    assert (
-        in_analysis / "Secondary_Analysis_Complete.txt"
-    ), "File Secondary_Analysis_Complete.txt is not present!"
+    assert in_analysis / "Secondary_Analysis_Complete.txt", (
+        "File Secondary_Analysis_Complete.txt is not present!"
+    )
 
     print(
         f"""Found analysis data in '{in_analysis}'.\nDo you want to demultiplex this data again? [y/n/q]: """,
@@ -95,7 +95,9 @@ else:
     )
     config["demux"] = True
 
-assert config["demux"] == (len(config["lanes"]) == run_info.flowcell().lane_count()), "Re-demultiplexing a subset of the lanes is currently not supported."
+assert config["demux"] == (len(config["lanes"]) == run_info.flowcell().lane_count()), (
+    "Re-demultiplexing a subset of the lanes is currently not supported."
+)
 
 
 # Reads
@@ -110,27 +112,27 @@ run_id = re.search(
     r"(?P<date>\d{6})_(?P<instrument>[A-Z]{1,2}\d{5})_(?P<run_n>\d+)_(?P<flowcell_side>[AB])(?P<flowcell_id>\w{9})",
     config["bcl"].name,
 ).groupdict()
-assert (
-    ss_id["date"] == run_id["date"]
-), f"""Date in BCL folder and SampleSheet does not match: {ss_id["date"]} != {run_id["date"]}"""
-assert (
-    ss_id["flowcell_side"] == run_id["flowcell_side"]
-), f"""Flowcell side in BCL folder and SampleSheet does not match: {ss_id["flowcell_side"]} != {run_id["flowcell_side"]}"""
-assert (
-    run_info.name() == config["bcl"].name
-), f"""Run ID in BCL folder and run info does not match: {run_info.name()} != {config["bcl"].name}"""
-assert (
-    run_info.instrument_name() == run_id["instrument"]
-), f"""Instrument in BCL folder and run info does not match: {run_info.instrument_name()} != {run_id["instrument"]}"""
-assert run_info.run_number() == int(
-    run_id["run_n"]
-), f"""Run number in BCL folder and run info does not match: {run_info.run_number()} != {int(run_id["run_n"])}"""
-assert (
-    run_info.flowcell_id() == run_id["flowcell_id"]
-), f"""Flowcell ID in BCL folder and run info does not match: {run_info.flowcell_id()} != {run_id["flowcell_id"]}"""
-assert (
-    run_params.find("Side").text == run_id["flowcell_side"]
-), f"""Flowcel side in BCL folder and run info does not match: {run_params.find("Side").text} != {run_id["flowcell_side"]}"""
+assert ss_id["date"] == run_id["date"], (
+    f"""Date in BCL folder and SampleSheet does not match: {ss_id["date"]} != {run_id["date"]}"""
+)
+assert ss_id["flowcell_side"] == run_id["flowcell_side"], (
+    f"""Flowcell side in BCL folder and SampleSheet does not match: {ss_id["flowcell_side"]} != {run_id["flowcell_side"]}"""
+)
+assert run_info.name() == config["bcl"].name, (
+    f"""Run ID in BCL folder and run info does not match: {run_info.name()} != {config["bcl"].name}"""
+)
+assert run_info.instrument_name() == run_id["instrument"], (
+    f"""Instrument in BCL folder and run info does not match: {run_info.instrument_name()} != {run_id["instrument"]}"""
+)
+assert run_info.run_number() == int(run_id["run_n"]), (
+    f"""Run number in BCL folder and run info does not match: {run_info.run_number()} != {int(run_id["run_n"])}"""
+)
+assert run_info.flowcell_id() == run_id["flowcell_id"], (
+    f"""Flowcell ID in BCL folder and run info does not match: {run_info.flowcell_id()} != {run_id["flowcell_id"]}"""
+)
+assert run_params.find("Side").text == run_id["flowcell_side"], (
+    f"""Flowcel side in BCL folder and run info does not match: {run_params.find("Side").text} != {run_id["flowcell_side"]}"""
+)
 
 
 ###################
@@ -172,9 +174,9 @@ ss_pools = defaultdict(list)
     if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in config["lanes"]
 ]
 # Assertions
-assert run_info.is_paired_end() == (
-    "Read2Cycles" in ss.reads.keys()
-), "Paired-end status in run info and SampleSheet does not match"
+assert run_info.is_paired_end() == ("Read2Cycles" in ss.reads.keys()), (
+    "Paired-end status in run info and SampleSheet does not match"
+)
 
 
 ##################
@@ -192,7 +194,6 @@ assert all(
 ), "unexpected index pairs in SampleSheet. Is p5 in reverse-complement?"
 
 
-
 ### Run ID - add 20 year prefix, if not present
 run_id = config["bcl"].name
 if not run_id.startswith("20"):
@@ -208,12 +209,11 @@ if config["out_dir"].resolve() == Path("/maps/datasets/caeg_fastq"):
 else:
     caeg_data = False
 # Check if folder exists
-assert not (config["out_dir"] / run_id).exists() or config.get(
-    "resume", False
-), f'Output folder {config["out_dir"] / run_id} already exists! Please rename/delete folder and retry.'
+assert not (config["out_dir"] / run_id).exists() or config.get("resume", False), (
+    f"Output folder {config['out_dir'] / run_id} already exists! Please rename/delete folder and retry."
+)
 
 
 # Paths
 fastq_sample = "<out_dir>/{run_id}/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz"
 fastq_undetermined = "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz"
-
