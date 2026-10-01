@@ -1,9 +1,5 @@
 import os
-import re
 from datetime import datetime, timedelta
-from pathlib import Path
-import pandas as pd
-from collections import defaultdict
 
 snakemake.utils.min_version("9.22.0")
 start_time = datetime.now()
@@ -11,223 +7,14 @@ start_time = datetime.now()
 header = """
 # Name: SnakeDemux
 # Description: Snakemake workflow to demultiplex Illumina runs.
-# Version: 0.1.0 (2026-09-28)
+# Version: 0.1.0 (2026-10-01)
 # Author: Filipe G. Vieira
 # Mail: fgvieira@sund.ku.dk
 """
 
 
-######################
-### Parse Run info ###
-######################
-from interop import py_interop_run
-import xml.etree.ElementTree as ET
-
-run_info = py_interop_run.info()
-run_info.read(config["bcl"])
-# Flowcell Side
-run_params = ET.parse(Path(config["bcl"]) / "RunParameters.xml").getroot()
-
-
-#########################
-### Parse user config ###
-#########################
-config["bcl"] = Path(config["bcl"])
-config["sample_sheet"] = Path(config["sample_sheet"])
-config["out_dir"] = Path(config["out_dir"])
-# Lanes
-if config.get("lanes"):
-    config["lanes"] = str(config["lanes"]).split(",")
-else:
-    config["lanes"] = list(map(str, range(1, run_info.flowcell().lane_count() + 1)))
-# Reads
-ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
-# Idx file
-config["idx_list"] = Path(config["idx_list"])
-if not config["idx_list"].is_absolute():
-    config["idx_list"] = (Path(workflow.basedir) / ".." / config["idx_list"]).resolve()
-
-print(f"""BCL folder: {config["bcl"]}
-SampleSheet: {config["sample_sheet"]}
-Output folder: {config["out_dir"]}
-Index list: {config["idx_list"]}
-Run: {run_info.name()}
-Instrument: {run_info.instrument_name()}
-Run Number: {run_info.run_number()}
-Flowcell: {run_params.find("Side").text}{run_info.flowcell_id()}
-Lanes in Flowcell: {run_info.flowcell().lane_count()}
-Lanes to be processed: {config["lanes"]}
-Date: {run_info.date()}
-Total Cycles: {run_info.total_cycles()}
-Paired-End: {run_info.is_paired_end()}""")
-
-### Assertions
-ss_id = re.match(
-    r"(?P<date>\d{6})_samplesheet_(?P<flowcell_type>\w+)(?P<flowcell_side>[AB])",
-    config["sample_sheet"].name,
-).groupdict()
-run_id = re.search(
-    r"(?P<date>\d{6})_(?P<instrument>[A-Z]{1,2}\d{5})_(?P<run_n>\d+)_(?P<flowcell_side>[AB])(?P<flowcell_id>\w{9})",
-    config["bcl"].name,
-).groupdict()
-assert (
-    ss_id["date"] == run_id["date"]
-), f"""Date in BCL folder and SampleSheet does not match: {ss_id["date"]} != {run_id["date"]}"""
-assert (
-    ss_id["flowcell_side"] == run_id["flowcell_side"]
-), f"""Flowcell side in BCL folder and SampleSheet does not match: {ss_id["flowcell_side"]} != {run_id["flowcell_side"]}"""
-assert (
-    run_info.name() == config["bcl"].name
-), f"""Run ID in BCL folder and run info does not match: {run_info.name()} != {config["bcl"].name}"""
-assert (
-    run_info.instrument_name() == run_id["instrument"]
-), f"""Instrument in BCL folder and run info does not match: {run_info.instrument_name()} != {run_id["instrument"]}"""
-assert run_info.run_number() == int(
-    run_id["run_n"]
-), f"""Run number in BCL folder and run info does not match: {run_info.run_number()} != {int(run_id["run_n"])}"""
-assert (
-    run_info.flowcell_id() == run_id["flowcell_id"]
-), f"""Flowcell ID in BCL folder and run info does not match: {run_info.flowcell_id()} != {run_id["flowcell_id"]}"""
-assert (
-    run_params.find("Side").text == run_id["flowcell_side"]
-), f"""Flowcel side in BCL folder and run info does not match: {run_params.find("Side").text} != {run_id["flowcell_side"]}"""
-
-
-###################
-### SampleSheet ###
-###################
-from samshee.samplesheetv2 import read_samplesheetv2
-
-ss = read_samplesheetv2(config["sample_sheet"])
-# Samples
-ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
-assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
-# Projects
-ss_proj = ss_samples["Sample_Project"].unique().tolist()
-# Assign sample numbers
-ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
-assert (
-    ss_samples.drop(columns="Lane")
-    .groupby(["Sample_ID"])
-    .nunique()["sample_n"]
-    .eq(1)
-    .all()
-), "Sample_ID have different Sample_N. Check your Samplesheet."
-# Assign R1/R2
-ss_samples = ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read")
-# Assign lane number to samples
-if "Lane" not in ss_samples.columns:
-    ss_samples = ss_samples.assign(Lane=config["lanes"] * len(ss_samples)).explode(
-        "Lane"
-    )
-ss_samples = ss_samples.astype({"Lane": "string"})
-# Restrict to relevant lanes
-ss_samples = ss_samples[ss_samples["Lane"].isin(config["lanes"])]
-assert not ss_samples.empty, "No samples to process"
-# Pools
-ss_pools = defaultdict(list)
-[
-    ss_pools[val].append(tag.removeprefix("PoolLane"))
-    for tag, val in ss.header.items()
-    if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in config["lanes"]
-]
-# Assertions
-assert run_info.is_paired_end() == (
-    "Read2Cycles" in ss.reads.keys()
-), "Paired-end status in run info and SampleSheet does not match"
-
-
-##################
-### Index List ###
-##################
-# Check if indexes are in SS
-idx_list = pd.read_table(config["idx_list"])
-# Add p5 in reverse complement
-idx_list["p5seq_RC"] = (
-    idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
-)
-assert all(
-    ss_samples["Index"].isin(idx_list["p7seq"])
-    == ss_samples["Index2"].isin(idx_list["p5seq_RC"])
-), "unexpected index pairs in SampleSheet. Is p5 in reverse-complement?"
-
-
-###########
-### BCL ###
-###########
-in_analyses = config["bcl"] / "Analysis"
-if in_analyses.exists():
-    # Choose analysis, by default is the last
-    in_analysis = sorted(in_analyses.glob("[0-9]/Data"))[
-        config.get("analysis_n", 0) - 1
-    ]
-
-    assert config["bcl"] / "CopyComplete.txt", "File CopyComplete.txt is not present!"
-    assert (
-        in_analysis / "Secondary_Analysis_Complete.txt"
-    ), "File Secondary_Analysis_Complete.txt is not present!"
-
-    print(
-        f"""Found analysis data in '{in_analysis}'.\nDo you want to demultiplex this data again? [y/n/q]: """,
-        end="",
-        file=sys.stderr,
-    )
-    demux = config.get("demux")
-    if not demux:
-        from builtins import input as user_input
-
-        demux = user_input()
-
-    match demux:
-        case "y" | "Y" | "yes" | "Yes" | "YES":
-            print("Re-demultiplexing data...", file=sys.stderr)
-            demux = True
-        case "n" | "N" | "no" | "No" | "NO":
-            print("Using existing data...", file=sys.stderr)
-            demux = False
-        case "q" | "Q" | "quit" | "Quit" | "QUIT":
-            print("Quitting...", file=sys.stderr)
-            exit(0)
-        case _:
-            print("Unknown command!", file=sys.stderr)
-            exit(1)
-else:
-    print(
-        f"""Demultiplexing locally (could not find '{config["bcl"] / "Analysis"}' folder).""",
-        file=sys.stderr,
-    )
-    demux = True
-
-
-### Run ID - add 20 year prefix, if not present
-run_id = config["bcl"].name
-if not run_id.startswith("20"):
-    run_id = f"20{run_id}"
-
-
-##############
-### Output ###
-##############
-if config["out_dir"].resolve() == Path("/maps/datasets/caeg_fastq"):
-    config["out_dir"] = config["out_dir"] / run_id[0:4]
-    caeg_data = True
-else:
-    caeg_data = False
-# Check if folder exists
-assert not (config["out_dir"] / run_id).exists() or config.get(
-    "resume", False
-), f'Output folder {config["out_dir"] / run_id} already exists! Please rename/delete folder and retry.'
-
-
-# Paths
-fastq_sample = "<out_dir>/{run_id}/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz"
-fastq_undetermined = "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz"
-
-
-pathvars:
-    in_dir=str(config["bcl"]),
-    in_analysis=str(in_analysis),
-    out_dir=str(config["out_dir"]),
+# Parse Run info
+include: "rules/config.py"
 
 
 # Copy log
@@ -237,6 +24,12 @@ onsuccess:
     with open(log[0], "a") as f:
         f.write(f"Total runtime: {runtime}")
     shell("cp {log} {out_dir}/{run_id}/.")
+
+
+pathvars:
+    in_dir=str(config["bcl"]),
+    in_analysis=str(in_analysis),
+    out_dir=str(config["out_dir"]),
 
 
 wildcard_constraints:
@@ -249,7 +42,7 @@ wildcard_constraints:
 
 
 # Import rules
-include: "rules/bcl_convert.smk" if demux else "rules/copy.smk"
+include: "rules/bcl_convert.smk" if config["demux"] else "rules/copy.smk"
 include: "rules/qc.smk"
 include: "rules/smdb.smk"
 
@@ -257,7 +50,7 @@ include: "rules/smdb.smk"
 # Rules
 rule qc:
     input:
-        bcl=rules.bcl_convert.log if demux else [],
+        bcl=rules.bcl_convert.log if config["demux"] else [],
         # Logs
         demux=expand(
             "<out_dir>/{run_id}/Logs/{log}.log",
@@ -346,7 +139,7 @@ rule demux:
             .explode("type")
             .to_dict("records")
         ]
-        if not demux
+        if not config["demux"]
         else [],
         ### FASTQ
         [
