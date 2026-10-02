@@ -12,7 +12,7 @@ rule logs_errors:
         path=f"{in_analysis}/logs/BCLConvert",
         files=lambda w: "MSLB2F-stderr_*.txt",
     shell:
-        "cat {params.path}/{params.files} | grep -iv warning | sort -u > {output}"
+        "cat {params.path}/{params.files} | {{ grep -iv warning || test $? = 1; }} | sort -u > {output}"
 
 
 rule logs_warnings:
@@ -26,7 +26,7 @@ rule logs_warnings:
         path=f"{in_analysis}/logs/BCLConvert",
         files=lambda w: "MSLB2F-stderr_*.txt",
     shell:
-        "cat {params.path}/{params.files} | grep -i warning | sort -u > {output}"
+        "cat {params.path}/{params.files} | {{ grep -i warning || test $? = 1; }} | sort -u > {output}"
 
 
 rule logs_info:
