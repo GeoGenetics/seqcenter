@@ -1,8 +1,8 @@
 name: smdb_upload_env
 channels:
-  - defaults
+  - conda-forge
+  - nodefaults
 dependencies:
-  - python=3.11 
   - pandas 
   - sqlalchemy  
   - psycopg2

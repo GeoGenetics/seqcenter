@@ -1,0 +1,10 @@
+*~
+.*
+*__
+/cache/
+*.bam
+*.cram
+
+# pixi environments
+.pixi
+*.egg-info
