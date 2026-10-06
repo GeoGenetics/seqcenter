@@ -15,13 +15,17 @@ graphviz = ">=14.1.2,<15"
 
 [environments]
 test = { features = ["test"] }
-format = { features = ["format"], no-default-feature = true }
+
+[environments.format]
+features = ["format"]
+no-default-feature = true
 
 [feature.test.dependencies]
 ipython = ">=9.15.0,<10"
 
 [feature.format.dependencies]
 black = ">=26.5.1,<27"
+ruff = ">=0.16.10,<0.17"
 snakefmt = ">=2.0.3,<3"
 
 [pypi-dependencies]

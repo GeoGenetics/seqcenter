@@ -95,9 +95,9 @@ else:
     )
     config["demux"] = True
 
-assert config["demux"] == (len(config["lanes"]) == run_info.flowcell().lane_count()), (
-    "Re-demultiplexing a subset of the lanes is currently not supported."
-)
+assert (
+    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
+), "Re-demultiplexing a subset of the lanes is currently not supported."
 
 
 # Reads
@@ -146,6 +146,12 @@ ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
 assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
 # Projects
 ss_proj = ss_samples["Sample_Project"].unique().tolist()
+# Assign lane number to samples
+if "Lane" not in ss_samples.columns:
+    ss_samples = ss_samples.assign(
+        Lane=[config["lanes"]] * ss_samples.shape[0]
+    ).explode("Lane")
+ss_samples = ss_samples.astype({"Lane": "string"})
 # Assign sample numbers
 ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
 assert (
@@ -156,13 +162,7 @@ assert (
     .all()
 ), "Sample_ID have different Sample_N. Check your Samplesheet."
 # Assign R1/R2
-ss_samples = ss_samples.assign(read=[ss_reads] * len(ss_samples)).explode("read")
-# Assign lane number to samples
-if "Lane" not in ss_samples.columns:
-    ss_samples = ss_samples.assign(Lane=config["lanes"] * len(ss_samples)).explode(
-        "Lane"
-    )
-ss_samples = ss_samples.astype({"Lane": "string"})
+ss_samples = ss_samples.assign(read=[ss_reads] * ss_samples.shape[0]).explode("read")
 # Restrict to relevant lanes
 ss_samples = ss_samples[ss_samples["Lane"].isin(config["lanes"])]
 assert not ss_samples.empty, "No samples to process"
