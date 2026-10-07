@@ -1,0 +1,175 @@
+import os
+from datetime import datetime, timedelta
+
+snakemake.utils.min_version("9.22.0")
+start_time = datetime.now()
+
+header = """
+# Name: SnakeDemux
+# Description: Snakemake workflow to demultiplex Illumina runs.
+# Version: 0.1.0 (2026-10-01)
+# Author: Filipe G. Vieira
+# Mail: fgvieira@sund.ku.dk
+"""
+
+
+# Parse Run info
+include: "rules/config.py"
+
+
+# Copy log
+onsuccess:
+    out_dir = config["out_dir"]
+    runtime = datetime.now() - start_time
+    with open(log[0], "a") as f:
+        f.write(f"Total runtime: {runtime}")
+    shell("cp {log} {out_dir}/{run_id}/.")
+
+
+pathvars:
+    in_dir=str(config["bcl"]),
+    in_analysis=str(in_analysis),
+    out_dir=str(config["out_dir"]),
+
+
+wildcard_constraints:
+    run_id=run_id,
+    Sample_Project="|".join(ss_proj),
+    pool="|".join(ss_pools.keys()),
+    sample_n=r"\d+",
+    Lane="|".join(config["lanes"]),
+    read="|".join(ss_reads),
+
+
+# Import rules
+include: "rules/bcl_convert.smk" if config["demux"] else "rules/copy.smk"
+include: "rules/qc.smk"
+include: "rules/smdb.smk"
+
+
+# Rules
+rule qc:
+    input:
+        bcl=rules.bcl_convert.log if config["demux"] else [],
+        # Logs
+        demux=expand(
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Info", "Warnings", "Errors"],
+            allow_missing=True,
+        ),
+        # Number of reads
+        nreads_fastq=rules.qc_fastq_nreads.output,
+        nreads_undeter=rules.qc_undetermined_nreads.output,
+        # Sample FASTQ MD5
+        md5=expand(
+            rules.qc_fastq_md5sum_cat.log, Sample_Project=ss_proj, allow_missing=True
+        ),
+        # Pool Cross-contamination
+        cc=expand(
+            rules.qc_cross_contamination.log.stderr,
+            pool=ss_pools.keys(),
+            allow_missing=True,
+        ),
+        # Upload to SMDB
+        smdb=(
+            rules.smdb_upload.output.log
+            if os.environ.get("DB_PASSWORD") and caeg_data
+            else []
+        ),
+    output:
+        log="<out_dir>/{run_id}/{run_id}.log",
+    params:
+        header=header,
+    shell:
+        """
+        (
+            echo {params.header:q}
+            echo "# Demultiplexing"
+            cat {input.demux}
+            echo "# FASTQ files with few reads"
+            cat {input.nreads_fastq}
+            echo "# Top Undetermined Adaptors"
+            cat {input.nreads_undeter}
+            echo "# MD5 checksum"
+            cat {input.md5}
+            echo "# Cross-contamination"
+            cat {input.cc}
+            if [ -e "{input.smdb}" ]; then
+                echo "# SMDB log"
+                cat {input.smdb}
+            fi
+        ) >{output.log}
+        """
+
+
+rule demux:
+    input:
+        ### Demux Logs
+        expand(
+            "<out_dir>/{run_id}/Logs/{log}.log",
+            log=["Info", "Warnings", "Errors"],
+            allow_missing=True,
+        ),
+        ### Reports
+        expand(
+            "<out_dir>/{run_id}/Reports/{report}",
+            run_id=run_id,
+            report=[
+                "RunCompletionStatus.xml",
+                "RunInfo.xml",
+                "RunParameters.xml",
+                "SampleSheet.csv",
+                "Demultiplex_Stats.csv",
+                "Demultiplex_Tile_Stats.csv",
+                "Index_Hopping_Counts.csv",
+                "IndexMetricsOut.bin",
+                "Top_Unknown_Barcodes.csv",
+                "Adapter_Cycle_Metrics.csv",
+                "Adapter_Metrics.csv",
+                "Quality_Metrics.csv",
+                "Quality_Tile_Metrics.csv",
+            ],
+        ),
+        ### FASTQC
+        [
+            expand(rules.reports_fastqc.output, **sample, allow_missing=True)
+            for sample in ss_samples.assign(
+                type=[["fastqc_metrics", "trimmer_metrics"]] * len(ss_samples)
+            )
+            .explode("type")
+            .to_dict("records")
+        ]
+        if not config["demux"]
+        else [],
+        ### FASTQ
+        [
+            expand(fastq_sample, **sample, allow_missing=True)
+            for sample in ss_samples.to_dict("records")
+        ],
+        expand(
+            fastq_undetermined, Lane=config["lanes"], read=ss_reads, allow_missing=True
+        ),
+        # Sample FASTQ MD5
+        expand(
+            rules.qc_fastq_md5sum_cat.output.md5sum,
+            Sample_Project=ss_proj,
+            allow_missing=True,
+        ),
+        # Pool Cross-contamination
+        expand(
+            rules.qc_cross_contamination.output,
+            pool=ss_pools.keys(),
+            allow_missing=True,
+        ),
+        # QC
+        rules.qc.output,
+    output:
+        touch("<out_dir>/{run_id}/seqcenter.done"),
+    message:
+        "Demultiplexing done!"
+
+
+rule all:
+    default_target: True
+    input:
+        expand(rules.demux.output, run_id=run_id),
