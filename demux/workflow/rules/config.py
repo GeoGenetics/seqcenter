@@ -18,7 +18,9 @@ import xml.etree.ElementTree as ET
 run_info = py_interop_run.info()
 run_info.read(str(config["bcl"]))
 # Flowcell Side
-run_params = ET.parse(config["bcl"] / "RunParameters.xml").getroot()
+flowcell_side = ET.parse(config["bcl"] / "RunParameters.xml").getroot().find("Side")
+if flowcell_side is not None:
+    flowcell_side = flowcell_side.text
 
 
 #########################
@@ -45,7 +47,8 @@ Index list: {config["idx_list"]}
 Run: {run_info.name()}
 Instrument: {run_info.instrument_name()}
 Run Number: {run_info.run_number()}
-Flowcell: {run_params.find("Side").text}{run_info.flowcell_id()}
+Flowcell Side: {flowcell_side}
+Flowcell: {run_info.flowcell_id()}
 Lanes in Flowcell: {run_info.flowcell().lane_count()}
 Lanes to be processed: {config["lanes"]}
 Date: {run_info.date()}
@@ -105,11 +108,11 @@ ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 
 ### Assertions
 ss_id = re.match(
-    r"(?P<date>\d{6})_samplesheet_(?P<flowcell_type>\w+)(?P<flowcell_side>[AB])",
+    r"(?P<date>\d{6})_samplesheet_(?P<flowcell_type>\w+?)(?P<flowcell_side>[AB])?[_.]",
     config["sample_sheet"].name,
 ).groupdict()
 run_id = re.search(
-    r"(?P<date>\d{6})_(?P<instrument>[A-Z]{1,2}\d{5})_(?P<run_n>\d+)_(?P<flowcell_side>[AB])(?P<flowcell_id>\w{9})",
+    r"(?P<date>\d{6})_(?P<instrument>[A-Z]{1,2}\d{5})_(?P<run_n>\d+)_(?P<flowcell_side>[AB])?(?P<flowcell_id>\w{9})",
     config["bcl"].name,
 ).groupdict()
 assert ss_id["date"] == run_id["date"], (
@@ -130,8 +133,8 @@ assert run_info.run_number() == int(run_id["run_n"]), (
 assert run_info.flowcell_id() == run_id["flowcell_id"], (
     f"""Flowcell ID in BCL folder and run info does not match: {run_info.flowcell_id()} != {run_id["flowcell_id"]}"""
 )
-assert run_params.find("Side").text == run_id["flowcell_side"], (
-    f"""Flowcel side in BCL folder and run info does not match: {run_params.find("Side").text} != {run_id["flowcell_side"]}"""
+assert flowcell_side == run_id["flowcell_side"], (
+    f"""Flowcel side in BCL folder and run info does not match: {flowcell_side} != {run_id["flowcell_side"]}"""
 )
 
 
@@ -184,14 +187,24 @@ assert run_info.is_paired_end() == ("Read2Cycles" in ss.reads.keys()), (
 ##################
 # Check if indexes are in SS
 idx_list = pd.read_table(config["idx_list"])
+# Add index suffix
+idx_len_max = idx_list["p7seq"].str.len().max()
+idx_list["p7seq"] = idx_list.apply(
+    lambda row: (row.p7seq + config["adapter_seqs"]["p7"])[:idx_len_max], axis=1
+)
+idx_list["p5seq"] = idx_list.apply(
+    lambda row: (row.p5seq + config["adapter_seqs"]["p5"])[:idx_len_max], axis=1
+)
 # Add p5 in reverse complement
 idx_list["p5seq_RC"] = (
     idx_list["p5seq"].str.translate(str.maketrans("ATCGatcg", "TAGCtagc")).str[::-1]
 )
-assert all(
-    ss_samples["Index"].isin(idx_list["p7seq"])
-    == ss_samples["Index2"].isin(idx_list["p5seq_RC"])
-), "unexpected index pairs in SampleSheet. Is p5 in reverse-complement?"
+adapt_valid = ss_samples["Index"].isin(idx_list["p7seq"]) == ss_samples["Index2"].isin(
+    idx_list["p5seq_RC"]
+)
+assert all(adapt_valid), (
+    f"""unexpected index pairs in SampleSheet. Maybe p5 is in reverse-complement?\n{ss_samples[~adapt_valid].drop(["Lane", "read"], axis="columns").drop_duplicates()}"""
+)
 
 
 ### Run ID - add 20 year prefix, if not present

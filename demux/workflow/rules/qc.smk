@@ -43,7 +43,7 @@ rule qc_cross_contamination:
     params:
         lanes=lambda w: ",".join(ss_pools[w.pool]),
         outdir=lambda w, output: Path(output[0]).with_suffix("").with_suffix(""),
-        extra="--rpm-warn 100",
+        extra="--adapter-seqs {p7} {p5} --rpm-warn 100".format(**config["adapter_seqs"]),
     shell:
         "{workflow.basedir}/scripts/cross_contamination/cross_contamination.py --index-counts {input.idx_counts} --index-known {input.idx_list} --lanes {params.lanes} {params.extra} --out-prefix {params.outdir} > {log.stdout} 2> {log.stderr}"
 

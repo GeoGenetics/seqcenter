@@ -6,6 +6,10 @@ sample_sheet: ~
 out_dir: "."
 # Lanes to use (by default, use all)
 lanes: ~
+# Adapter sequences
+adapter_seqs:
+  p7: ATCTCGTATGCCGTCTTCTGCTTG
+  p5: GTGTAGATCTCGGTGGTCGCCGTATCATT
 # Analysis (in Analysis/?/Data) to use in case of NOT re-demux (0 means latest)
 analysis_n: 0
 # If folder exists, resume

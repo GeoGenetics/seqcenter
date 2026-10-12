@@ -3,8 +3,8 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-08-24
-Version: 1.0.11"""
+Date: 2026-10-12
+Version: 1.0.12"""
 
 import sys
 import argparse
@@ -157,6 +157,9 @@ idx_cnt = (
     .sum()
     .reset_index()
 )
+assert (idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()).all(), (
+    "P7 and P5 adapters have different lenghts!"
+)
 total_seqs = sum(idx_cnt["seqs"])
 log.debug(f"\n{idx_cnt}")
 
@@ -174,11 +177,17 @@ idx_names.columns = ["id", "p7seq", "p5seq"]
 # Use known indexes if provided
 if args.index_known:
     log.info(f"Reading indexes from {args.index_known}")
-    idx_names = pd.concat([idx_names, pd.read_table(args.index_known)]).drop_duplicates(
-        subset=["p7seq", "p5seq"], keep="last"
+    idx_master = pd.read_table(args.index_known)
+    # Add index suffix (if adapters shorter)
+    idx_master["p7seq"] = idx_master.apply(
+        lambda row: (row.p7seq + args.adapter_seqs[0])[:idx_len_max], axis=1
     )
-    assert (idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()).all(), (
-        "P7 and P5 adapters have different lenghts!"
+    idx_master["p5seq"] = idx_master.apply(
+        lambda row: (row.p5seq + args.adapter_seqs[1])[:idx_len_max], axis=1
+    )
+    # Concat index lists
+    idx_names = pd.concat([idx_names, idx_master]).drop_duplicates(
+        subset=["p7seq", "p5seq"], keep="first"
     )
     # Revcomp P5 index
     if args.p5_revcomp:
@@ -191,14 +200,6 @@ if args.index_known:
                 .upper()[::-1]
             )
         )
-
-# Add index suffix
-idx_names["p7seq"] = idx_names.apply(
-    lambda row: (row.p7seq + args.adapter_seqs[0])[:idx_len_max], axis=1
-)
-idx_names["p5seq"] = idx_names.apply(
-    lambda row: (row.p5seq + args.adapter_seqs[1])[:idx_len_max], axis=1
-)
 log.debug(f"\n{idx_names}")
 
 
@@ -207,16 +208,17 @@ log.debug(f"\n{idx_names}")
 ########################
 log.info("Assign index IDs")
 idx_cnt = idx_cnt.set_index(["p7seq", "p5seq"]).join(
-    idx_names.set_index(["p7seq", "p5seq"]), how="left", validate="m:1"
+    idx_names.set_index(["p7seq", "p5seq"]), how="left", validate="1:1"
 )
+# Infer p7 and p5 IDs
 idx_cnt["p7id"] = idx_cnt["p5id"] = idx_cnt["id"]
-
 idx_cnt["p7id"] = idx_cnt["p7id"].fillna(
     idx_cnt.groupby(level="p7seq")["p7id"].transform("first")
 )
 idx_cnt["p5id"] = idx_cnt["p5id"].fillna(
     idx_cnt.groupby(level="p5seq")["p5id"].transform("first")
 )
+# Update index pairs status
 idx_cnt.loc[idx_cnt.p7id != idx_cnt.p5id, "RG"] = "unexpected"
 idx_cnt.loc[idx_cnt.p7id.isna() | idx_cnt.p5id.isna(), "RG"] = "unknown"
 

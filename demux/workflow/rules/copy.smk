@@ -1,3 +1,10 @@
+
+pathvars:
+    in_dir=str(config["bcl"]),
+    in_analysis=str(in_analysis),
+    out_dir=str(config["out_dir"]),
+
+
 ### LOGS
 
 

@@ -7,7 +7,7 @@ start_time = datetime.now()
 header = """
 # Name: SnakeDemux
 # Description: Snakemake workflow to demultiplex Illumina runs.
-# Version: 0.1.0 (2026-10-01)
+# Version: 0.1.0 (2026-10-12)
 # Author: Filipe G. Vieira
 # Mail: fgvieira@sund.ku.dk
 """
@@ -27,8 +27,6 @@ onsuccess:
 
 
 pathvars:
-    in_dir=str(config["bcl"]),
-    in_analysis=str(in_analysis),
     out_dir=str(config["out_dir"]),
 
 

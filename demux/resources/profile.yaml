@@ -14,8 +14,6 @@ strict-dag-evaluation:
   - periodic-wildcards
 notemp: yes
 
-configfile: "/projects/ggsc/apps/seqcenter/demux/resources/config.yaml"
-
 # CONDA
 wrapper-prefix: "git+file://projects/ggsc/apps/snakemake-wrappers"
 software-deployment-method:
