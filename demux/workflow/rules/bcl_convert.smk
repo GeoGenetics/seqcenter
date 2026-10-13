@@ -48,7 +48,7 @@ rule bcl_convert:
     log:
         "logs/{run_id}/bcl_convert.log",
     envmodules:
-        "bcl-convert/4.4.6",
+        "bcl-convert/4.5.4",
     threads: 10
     resources:
         mem="12 GiB",
