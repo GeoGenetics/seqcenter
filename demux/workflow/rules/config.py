@@ -4,11 +4,6 @@ import pandas as pd
 from collections import defaultdict
 
 
-config["bcl"] = Path(config["bcl"])
-config["sample_sheet"] = Path(config["sample_sheet"])
-config["out_dir"] = Path(config["out_dir"])
-
-
 #############################
 ### Parse Run Info/Params ###
 #############################
@@ -16,97 +11,33 @@ from interop import py_interop_run
 import xml.etree.ElementTree as ET
 
 run_info = py_interop_run.info()
-run_info.read(str(config["bcl"]))
+run_info.read(config["bcl"])
 # Flowcell Side
-flowcell_side = ET.parse(config["bcl"] / "RunParameters.xml").getroot().find("Side")
+flowcell_side = (
+    ET.parse(Path(config["bcl"]) / "RunParameters.xml").getroot().find("Side")
+)
 if flowcell_side is not None:
     flowcell_side = flowcell_side.text
 
 
-#########################
-### Parse user config ###
-#########################
+####################
+### Check config ###
+####################
 
+config["bcl"] = Path(config["bcl"])
+config["sample_sheet"] = Path(config["sample_sheet"])
+config["out_dir"] = Path(config["out_dir"])
 # Lanes
 if config.get("lanes"):
     config["lanes"] = str(config["lanes"]).split(",")
 else:
     config["lanes"] = list(map(str, range(1, run_info.flowcell().lane_count() + 1)))
-
 # Idx file
 config["idx_list"] = Path(config["idx_list"])
 if not config["idx_list"].is_absolute():
     config["idx_list"] = (Path(workflow.basedir) / ".." / config["idx_list"]).resolve()
 
-# Print info
-print(f"""{header}
-BCL folder: {config["bcl"]}
-SampleSheet: {config["sample_sheet"]}
-Output folder: {config["out_dir"]}
-Index list: {config["idx_list"]}
-Run: {run_info.name()}
-Instrument: {run_info.instrument_name()}
-Run Number: {run_info.run_number()}
-Flowcell Side: {flowcell_side}
-Flowcell: {run_info.flowcell_id()}
-Lanes in Flowcell: {run_info.flowcell().lane_count()}
-Lanes to be processed: {config["lanes"]}
-Date: {run_info.date()}
-Total Cycles: {run_info.total_cycles()}
-Paired-End: {run_info.is_paired_end()}""")
-
-# Demux
-in_analyses = config["bcl"] / "Analysis"
-if in_analyses.exists():
-    # Choose analysis, by default is the last
-    in_analysis = sorted(in_analyses.glob("[0-9]/Data"))[
-        config.get("analysis_n", 0) - 1
-    ]
-
-    assert config["bcl"] / "CopyComplete.txt", "File CopyComplete.txt is not present!"
-    assert in_analysis / "Secondary_Analysis_Complete.txt", (
-        "File Secondary_Analysis_Complete.txt is not present!"
-    )
-
-    print(
-        f"""Found analysis data in '{in_analysis}'.\nDo you want to demultiplex this data again? [y/n/q]: """,
-        end="",
-        file=sys.stderr,
-    )
-    if not config.get("demux"):
-        from builtins import input as user_input
-
-        config["demux"] = user_input()
-
-    match config["demux"]:
-        case "y" | "Y" | "yes" | "Yes" | "YES":
-            print("Re-demultiplexing data...", file=sys.stderr)
-            config["demux"] = True
-        case "n" | "N" | "no" | "No" | "NO":
-            print("Using existing data...", file=sys.stderr)
-            config["demux"] = False
-        case "q" | "Q" | "quit" | "Quit" | "QUIT":
-            print("Quitting...", file=sys.stderr)
-            exit(0)
-        case _:
-            print("Unknown command!", file=sys.stderr)
-            exit(1)
-else:
-    print(
-        f"""Demultiplexing locally (could not find '{config["bcl"] / "Analysis"}' folder).""",
-        file=sys.stderr,
-    )
-    config["demux"] = True
-
-assert (
-    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
-), "Re-demultiplexing a subset of the lanes is currently not supported."
-
-
-# Reads
-ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
-
-### Assertions
+# Metadata
 ss_id = re.match(
     r"(?P<date>\d{6})_samplesheet_(?P<flowcell_type>\w+?)(?P<flowcell_side>[AB])?[_.]",
     config["sample_sheet"].name,
@@ -149,8 +80,12 @@ ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
 assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
 # Projects
 ss_proj = ss_samples["Sample_Project"].unique().tolist()
+# Reads
+ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 # Assign lane number to samples
-if "Lane" not in ss_samples.columns:
+if "Lane" in ss_samples.columns:
+    config["lanes"] = ss_samples["Lane"].unique().astype(str)
+else:
     ss_samples = ss_samples.assign(
         Lane=[config["lanes"]] * ss_samples.shape[0]
     ).explode("Lane")
@@ -230,3 +165,71 @@ assert not (config["out_dir"] / run_id).exists() or config.get("resume", False),
 # Paths
 fastq_sample = "<out_dir>/{run_id}/{Sample_Project}/{Sample_ID}_S{sample_n}_L00{Lane}_R{read}_001.fastq.gz"
 fastq_undetermined = "<out_dir>/{run_id}/Undetermined_S0_L00{Lane}_R{read}_001.fastq.gz"
+
+
+# Print info
+print(f"""{header}
+BCL folder: {config["bcl"]}
+SampleSheet: {config["sample_sheet"]}
+Output folder: {config["out_dir"]}
+Index list: {config["idx_list"]}
+Run: {run_info.name()}
+Instrument: {run_info.instrument_name()}
+Run Number: {run_info.run_number()}
+Flowcell Side: {flowcell_side}
+Flowcell: {run_info.flowcell_id()}
+Lanes in Flowcell: {run_info.flowcell().lane_count()}
+Lanes to be processed: {config["lanes"]}
+Date: {run_info.date()}
+Total Cycles: {run_info.total_cycles()}
+Paired-End: {run_info.is_paired_end()}""")
+
+
+##################
+### User Input ###
+##################
+in_analyses = config["bcl"] / "Analysis"
+if in_analyses.exists():
+    # Choose analysis, by default is the last
+    in_analysis = sorted(in_analyses.glob("[0-9]/Data"))[
+        config.get("analysis_n", 0) - 1
+    ]
+
+    assert config["bcl"] / "CopyComplete.txt", "File CopyComplete.txt is not present!"
+    assert in_analysis / "Secondary_Analysis_Complete.txt", (
+        "File Secondary_Analysis_Complete.txt is not present!"
+    )
+
+    print(
+        f"""Found analysis data in '{in_analysis}'.\nDo you want to demultiplex this data again? [y/n/q]: """,
+        end="",
+        file=sys.stderr,
+    )
+    if not config.get("demux"):
+        from builtins import input as user_input
+
+        config["demux"] = user_input()
+
+    match config["demux"]:
+        case "y" | "Y" | "yes" | "Yes" | "YES":
+            print("Re-demultiplexing data...", file=sys.stderr)
+            config["demux"] = True
+        case "n" | "N" | "no" | "No" | "NO":
+            print("Using existing data...", file=sys.stderr)
+            config["demux"] = False
+        case "q" | "Q" | "quit" | "Quit" | "QUIT":
+            print("Quitting...", file=sys.stderr)
+            exit(0)
+        case _:
+            print("Unknown command!", file=sys.stderr)
+            exit(1)
+else:
+    print(
+        f"""Demultiplexing locally (could not find '{config["bcl"] / "Analysis"}' folder).""",
+        file=sys.stderr,
+    )
+    config["demux"] = True
+
+assert (
+    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
+), "Re-demultiplexing a subset of the lanes is currently not supported."
