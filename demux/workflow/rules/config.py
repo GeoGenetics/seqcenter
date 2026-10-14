@@ -27,11 +27,13 @@ if flowcell_side is not None:
 config["bcl"] = Path(config["bcl"])
 config["sample_sheet"] = Path(config["sample_sheet"])
 config["out_dir"] = Path(config["out_dir"])
+
 # Lanes
 if config.get("lanes"):
-    config["lanes"] = str(config["lanes"]).split(",")
+    config["lanes"] = set(str(config["lanes"]).split(","))
 else:
-    config["lanes"] = list(map(str, range(1, run_info.flowcell().lane_count() + 1)))
+    config["lanes"] = set(map(str, range(1, run_info.flowcell().lane_count() + 1)))
+
 # Idx file
 config["idx_list"] = Path(config["idx_list"])
 if not config["idx_list"].is_absolute():
@@ -84,7 +86,7 @@ ss_proj = ss_samples["Sample_Project"].unique().tolist()
 ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 # Assign lane number to samples
 if "Lane" in ss_samples.columns:
-    config["lanes"] = ss_samples["Lane"].unique().astype(str)
+    config["lanes"] = set(ss_samples["Lane"].unique().astype(str)).intersection(config["lanes"])
 else:
     ss_samples = ss_samples.assign(
         Lane=[config["lanes"]] * ss_samples.shape[0]
