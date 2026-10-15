@@ -33,6 +33,9 @@ if config.get("lanes"):
     config["lanes"] = set(str(config["lanes"]).split(","))
 else:
     config["lanes"] = set(map(str, range(1, run_info.flowcell().lane_count() + 1)))
+assert (
+    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
+), "Re-demultiplexing a subset of the lanes is currently not supported."
 
 # Idx file
 config["idx_list"] = Path(config["idx_list"])
@@ -86,7 +89,9 @@ ss_proj = ss_samples["Sample_Project"].unique().tolist()
 ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 # Assign lane number to samples
 if "Lane" in ss_samples.columns:
-    config["lanes"] = set(ss_samples["Lane"].unique().astype(str)).intersection(config["lanes"])
+    config["lanes"] = set(ss_samples["Lane"].unique().astype(str)).intersection(
+        config["lanes"]
+    )
 else:
     ss_samples = ss_samples.assign(
         Lane=[config["lanes"]] * ss_samples.shape[0]
@@ -140,7 +145,7 @@ adapt_valid = ss_samples["Index"].isin(idx_list["p7seq"]) == ss_samples["Index2"
     idx_list["p5seq_RC"]
 )
 assert all(adapt_valid), (
-    f"""unexpected index pairs in SampleSheet. Maybe p5 is in reverse-complement?\n{ss_samples[~adapt_valid].drop(["Lane", "read"], axis="columns").drop_duplicates()}"""
+    f"""unexpected index pairs in SampleSheet. Maybe i7 or i5 are in reverse-complement?\n{ss_samples[~adapt_valid].drop(["Lane", "read"], axis="columns").drop_duplicates()}"""
 )
 
 
@@ -231,7 +236,3 @@ else:
         file=sys.stderr,
     )
     config["demux"] = True
-
-assert (
-    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
-), "Re-demultiplexing a subset of the lanes is currently not supported."
