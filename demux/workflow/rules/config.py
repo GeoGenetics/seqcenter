@@ -33,9 +33,6 @@ if config.get("lanes"):
     config["lanes"] = set(str(config["lanes"]).split(","))
 else:
     config["lanes"] = set(map(str, range(1, run_info.flowcell().lane_count() + 1)))
-assert (
-    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
-), "Re-demultiplexing a subset of the lanes is currently not supported."
 
 # Idx file
 config["idx_list"] = Path(config["idx_list"])
@@ -236,3 +233,7 @@ else:
         file=sys.stderr,
     )
     config["demux"] = True
+
+assert (
+    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
+), "Re-demultiplexing a subset of the lanes is currently not supported."
