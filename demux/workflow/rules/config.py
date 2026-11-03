@@ -80,8 +80,6 @@ ss = read_samplesheetv2(config["sample_sheet"])
 # Samples
 ss_samples = pd.DataFrame.from_dict(ss.applications["BCLConvert"]["data"])
 assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sample_ID."
-# Projects
-ss_proj = ss_samples["Sample_Project"].unique().tolist()
 # Reads
 ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 # Assign lane number to samples
@@ -108,6 +106,8 @@ ss_samples = ss_samples.assign(read=[ss_reads] * ss_samples.shape[0]).explode("r
 # Restrict to relevant lanes
 ss_samples = ss_samples[ss_samples["Lane"].isin(config["lanes"])]
 assert not ss_samples.empty, "No samples to process"
+# Projects
+ss_proj = ss_samples["Sample_Project"].unique().tolist()
 # Pools
 ss_pools = defaultdict(list)
 [
@@ -183,7 +183,9 @@ Run Number: {run_info.run_number()}
 Flowcell Side: {flowcell_side}
 Flowcell: {run_info.flowcell_id()}
 Lanes in Flowcell: {run_info.flowcell().lane_count()}
-Lanes to be processed: {config["lanes"]}
+Lane(s) to process: {config["lanes"]}
+Project(s) to process: {set(ss_proj)}
+Pool(s) to process: {set(ss_pools.keys())}
 Date: {run_info.date()}
 Total Cycles: {run_info.total_cycles()}
 Paired-End: {run_info.is_paired_end()}""")
