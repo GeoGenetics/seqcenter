@@ -30,9 +30,9 @@ config["out_dir"] = Path(config["out_dir"])
 
 # Lanes
 if config.get("lanes"):
-    config["lanes"] = set(str(config["lanes"]).split(","))
+    ss_lanes = set(str(config["lanes"]).split(","))
 else:
-    config["lanes"] = set(map(str, range(1, run_info.flowcell().lane_count() + 1)))
+    ss_lanes = set(map(str, range(1, run_info.flowcell().lane_count() + 1)))
 
 # Idx file
 config["idx_list"] = Path(config["idx_list"])
@@ -84,13 +84,11 @@ assert sum(ss_samples["Sample_ID"].isna()) == 0, "Some entries do not have a Sam
 ss_reads = ["1", "2"] if run_info.is_paired_end() else ["1"]
 # Assign lane number to samples
 if "Lane" in ss_samples.columns:
-    config["lanes"] = set(ss_samples["Lane"].unique().astype(str)).intersection(
-        config["lanes"]
-    )
+    ss_lanes = set(map(str, ss_samples["Lane"].unique())).intersection(ss_lanes)
 else:
-    ss_samples = ss_samples.assign(
-        Lane=[config["lanes"]] * ss_samples.shape[0]
-    ).explode("Lane")
+    ss_samples = ss_samples.assign(Lane=[ss_lanes] * ss_samples.shape[0]).explode(
+        "Lane"
+    )
 ss_samples = ss_samples.astype({"Lane": "string"})
 # Assign sample numbers
 ss_samples["sample_n"] = pd.factorize(ss_samples["Sample_ID"])[0] + 1
@@ -104,7 +102,7 @@ assert (
 # Assign R1/R2
 ss_samples = ss_samples.assign(read=[ss_reads] * ss_samples.shape[0]).explode("read")
 # Restrict to relevant lanes
-ss_samples = ss_samples[ss_samples["Lane"].isin(config["lanes"])]
+ss_samples = ss_samples[ss_samples["Lane"].isin(ss_lanes)]
 assert not ss_samples.empty, "No samples to process"
 # Projects
 ss_proj = ss_samples["Sample_Project"].unique().tolist()
@@ -113,7 +111,7 @@ ss_pools = defaultdict(list)
 [
     ss_pools[val].append(tag.removeprefix("PoolLane"))
     for tag, val in ss.header.items()
-    if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in config["lanes"]
+    if tag.startswith("PoolLane") and tag.removeprefix("PoolLane") in ss_lanes
 ]
 # Assertions
 assert run_info.is_paired_end() == ("Read2Cycles" in ss.reads.keys()), (
@@ -183,9 +181,9 @@ Run Number: {run_info.run_number()}
 Flowcell Side: {flowcell_side}
 Flowcell: {run_info.flowcell_id()}
 Lanes in Flowcell: {run_info.flowcell().lane_count()}
-Lane(s) to process: {config["lanes"]}
-Project(s) to process: {set(ss_proj)}
-Pool(s) to process: {set(ss_pools.keys())}
+Lane(s) to process: {sorted(ss_lanes)}
+Project(s) to process: {sorted(set(ss_proj))}
+Pool(s) to process: {sorted(set(ss_pools.keys()))}
 Date: {run_info.date()}
 Total Cycles: {run_info.total_cycles()}
 Paired-End: {run_info.is_paired_end()}""")
@@ -236,6 +234,6 @@ else:
     )
     config["demux"] = True
 
-assert (
-    len(config["lanes"]) == run_info.flowcell().lane_count() or not config["demux"]
-), "Re-demultiplexing a subset of the lanes is currently not supported."
+assert not (config.get("lanes") and config["demux"]), (
+    "Re-demultiplexing a subset of the lanes is currently not supported."
+)

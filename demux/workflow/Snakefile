@@ -7,7 +7,7 @@ start_time = datetime.now()
 header = """
 # Name: SnakeDemux
 # Description: Snakemake workflow to demultiplex Illumina runs.
-# Version: 0.1.0 (2026-11-03)
+# Version: 0.1.0 (2026-11-04)
 # Author: Filipe G. Vieira
 # Mail: fgvieira@sund.ku.dk
 """
@@ -35,7 +35,7 @@ wildcard_constraints:
     Sample_Project="|".join(ss_proj),
     pool="|".join(ss_pools.keys()),
     sample_n=r"\d+",
-    Lane="|".join(config["lanes"]),
+    Lane="|".join(ss_lanes),
     read="|".join(ss_reads),
 
 
@@ -144,9 +144,7 @@ rule demux:
             expand(fastq_sample, **sample, allow_missing=True)
             for sample in ss_samples.to_dict("records")
         ],
-        expand(
-            fastq_undetermined, Lane=config["lanes"], read=ss_reads, allow_missing=True
-        ),
+        expand(fastq_undetermined, Lane=ss_lanes, read=ss_reads, allow_missing=True),
         # Sample FASTQ MD5
         expand(
             rules.qc_fastq_md5sum_cat.output.md5sum,
