@@ -3,8 +3,8 @@
 header = """
 Filename: cross_contamination.py
 Author: Filipe G. Vieira
-Date: 2026-10-12
-Version: 1.0.12"""
+Date: 2026-11-17
+Version: 1.0.13"""
 
 import sys
 import argparse
@@ -42,12 +42,6 @@ parser.add_argument(
     help="Adapter sequences [P7 and P5].",
 )
 parser.add_argument(
-    "--p5-revcomp",
-    action="store_true",
-    default=False,
-    help="Revcomp P5 sequences?",
-)
-parser.add_argument(
     "--lanes",
     action="store",
     default=None,
@@ -72,7 +66,7 @@ parser.add_argument(
 parser.add_argument(
     "--plot-format",
     action="store",
-    choices=["pdf", "html"],
+    choices=["", "pdf", "html"],
     default="html",
     help="Plot output format.",
 )
@@ -163,6 +157,7 @@ assert (idx_cnt["p7seq"].str.len() == idx_cnt["p5seq"].str.len()).all(), (
 total_seqs = sum(idx_cnt["seqs"])
 log.debug(f"\n{idx_cnt}")
 
+# Max index length
 idx_len_max = idx_cnt["p7seq"].str.len().max()
 assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
 
@@ -174,7 +169,7 @@ assert not np.isnan(idx_len_max), f"Idx max length is {idx_len_max}"
 idx_names = idx_cnt[["RG", "p7seq", "p5seq"]].dropna()
 idx_names.columns = ["id", "p7seq", "p5seq"]
 
-# Use known indexes if provided
+# Use known index IDs (if provided)
 if args.index_known:
     log.info(f"Reading indexes from {args.index_known}")
     idx_master = pd.read_table(args.index_known)
@@ -187,21 +182,9 @@ if args.index_known:
     )
     # Concat index lists
     idx_names = pd.concat([idx_names, idx_master]).drop_duplicates(
-        subset=["p7seq", "p5seq"], keep="first"
+        subset=["p7seq", "p5seq"], keep="last"
     )
-    # Revcomp P5 index
-    if args.p5_revcomp:
-        idx_names["p5seq"] = idx_names["p5seq"].map(
-            lambda x: (
-                x.replace("A", "t")
-                .replace("C", "g")
-                .replace("G", "c")
-                .replace("T", "a")
-                .upper()[::-1]
-            )
-        )
 log.debug(f"\n{idx_names}")
-
 
 ########################
 ### Assign Index IDs ###
@@ -210,6 +193,8 @@ log.info("Assign index IDs")
 idx_cnt = idx_cnt.set_index(["p7seq", "p5seq"]).join(
     idx_names.set_index(["p7seq", "p5seq"]), how="left", validate="1:1"
 )
+# Restrict IDs to the real ones
+idx_cnt["id"] = idx_cnt["id"].mask(idx_cnt["RG"].isna(), pd.NA)
 # Infer p7 and p5 IDs
 idx_cnt["p7id"] = idx_cnt["p5id"] = idx_cnt["id"]
 idx_cnt["p7id"] = idx_cnt["p7id"].fillna(
@@ -227,12 +212,14 @@ idx_cnt = idx_cnt.reset_index().drop(columns=["id"])[
     ["seqs", "p7seq", "p7id", "p5seq", "p5id", "RG"]
 ]
 
+
 ### Save to file
-log.info(f"Saving counts table to {args.out_prefix}.counts.tsv")
-Path(args.out_prefix).parent.mkdir(parents=True, exist_ok=True)
-idx_cnt.sort_values(by=["p7id", "p5id"]).to_csv(
-    f"{args.out_prefix}.counts.tsv", sep="\t", na_rep=".", index=False
-)
+if args.out_prefix:
+    log.info(f"Saving counts table to {args.out_prefix}.counts.tsv")
+    Path(args.out_prefix).parent.mkdir(parents=True, exist_ok=True)
+    idx_cnt.sort_values(by=["p7id", "p5id"]).to_csv(
+        f"{args.out_prefix}.counts.tsv", sep="\t", na_rep=".", index=False
+    )
 
 ### Pivot table ###
 idx_pivot = idx_cnt.pivot(index="p7id", columns="p5id", values="seqs")
@@ -311,13 +298,14 @@ idx_cnt["cross_cont_readsum"] = idx_cnt[["seqs", "cross_cont_readsum"]].min(axis
 # Calculate contam reads per Million
 idx_cnt["cross_cont_perM"] = idx_cnt["cross_cont_readsum"] / idx_cnt["seqs"] * 1000000
 ### Save to file
-log.info(f"Saving RG summary to {args.out_prefix}.cross_contam.tsv")
-idx_cnt.query('status == "known"').round(1).reset_index().to_csv(
-    f"{args.out_prefix}.cross_contam.tsv",
-    sep="\t",
-    na_rep=".",
-    index=False,
-)
+if args.out_prefix:
+    log.info(f"Saving RG summary to {args.out_prefix}.cross_contam.tsv")
+    idx_cnt.query('status == "known"').round(1).reset_index().to_csv(
+        f"{args.out_prefix}.cross_contam.tsv",
+        sep="\t",
+        na_rep=".",
+        index=False,
+    )
 ### Warn on high levels of contamination
 warn_rpm = idx_cnt.query(f'status == "known" & cross_cont_perM > {args.rpm_warn}')
 if not warn_rpm.empty:
