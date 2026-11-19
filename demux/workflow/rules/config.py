@@ -186,7 +186,8 @@ Project(s) to process: {sorted(set(ss_proj))}
 Pool(s) to process: {sorted(set(ss_pools.keys()))}
 Date: {run_info.date()}
 Total Cycles: {run_info.total_cycles()}
-Paired-End: {run_info.is_paired_end()}""")
+Paired-End: {run_info.is_paired_end()}
+CAEG data: {caeg_data}""")
 
 
 ##################
@@ -237,3 +238,11 @@ else:
 assert not (config.get("lanes") and config["demux"]), (
     "Re-demultiplexing a subset of the lanes is currently not supported."
 )
+
+
+sampleID_regex = r"LV\d{10}-(LV\d{10}-)?(LV\d{10}|(Lib|Exr)[PN]TC\d{8})-(LV\d{10}|(Lib|Exr)[PN]TC|proxy\d{11})"
+if caeg_data:
+    # Validate samples names
+    r = re.compile(sampleID_regex)
+    sampleID_match = ss_samples["Sample_ID"].apply(lambda x: bool(r.match(x)))
+    assert sampleID_match.all(), f"Invalid Sample IDs found:\n{ss_samples[~sampleID_match]}"
